@@ -1,0 +1,1434 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── TENANCY ─────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  displayName String
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organisations     Organisation[]
+  users             User[]
+  roles             Role[]
+  frameworks        Framework[]
+  controls          Control[]
+  risks             Risk[]
+  cryptoAssets      CryptoAsset[]
+  cryptoAlgorithms  CryptoAlgorithm[]
+  businessServices  BusinessService[]
+  informationAssets InformationAsset[]
+  systems           OrgSystem[]
+  suppliers         Supplier[]
+  scanScopes        ScanScope[]
+  scanJobs          ScanJob[]
+  observations      CryptoObservation[]
+  evidence          Evidence[]
+  actions           Action[]
+  exceptions        Exception[]
+  riskAcceptances   RiskAcceptance[]
+  assessments       Assessment[]
+  programmes        Programme[]
+  readinessScores   ReadinessScore[]
+  scoringPolicies   ScoringPolicy[]
+  auditEvents       AuditEvent[]
+  domainEvents      DomainEvent[]
+  notifications     Notification[]
+  remediationJobs   RemediationJob[]
+  sensors           Sensor[]
+  jurisdictions     OrgJurisdiction[]
+  reports           Report[]
+  controlTests      ControlTest[]
+}
+
+// ─── ORGANISATION ─────────────────────────────────────────────────────────────
+
+model Organisation {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  description String?
+  industry    String?
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  businessUnits BusinessUnit[]
+  jurisdictions OrgJurisdiction[]
+
+  @@index([tenantId])
+}
+
+model BusinessUnit {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  name           String
+  description    String?
+  headName       String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  businessServices BusinessService[]
+  users            User[]
+}
+
+model OrgJurisdiction {
+  id             String       @id @default(cuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id])
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  code           String
+  name           String
+  createdAt      DateTime     @default(now())
+}
+
+// ─── AUTH & RBAC ─────────────────────────────────────────────────────────────
+
+model User {
+  id             String        @id @default(cuid())
+  tenantId       String
+  tenant         Tenant        @relation(fields: [tenantId], references: [id])
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id])
+  email          String
+  name           String?
+  image          String?
+  emailVerified  DateTime?
+  passwordHash   String?
+  isActive       Boolean       @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+  userRoles UserRole[]
+
+  ownedRisks        Risk[]            @relation("RiskOwner")
+  ownedControls     Control[]         @relation("ControlOwner")
+  ownedActions      Action[]          @relation("ActionOwner")
+  assignedActions   Action[]          @relation("ActionAssignee")
+  ownedSuppliers    Supplier[]        @relation("SupplierOwner")
+  ownedBusinessSvcs BusinessService[] @relation("BSOwner")
+  ownedInfoAssets   InformationAsset[] @relation("IAOwner")
+  approvals              Approval[]
+  auditEvents            AuditEvent[]
+  remediationJobsRequested RemediationJob[] @relation("RemediationRequester")
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expires      DateTime
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  permissions Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userRoles UserRole[]
+
+  @@unique([tenantId, name])
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id])
+  grantedAt DateTime @default(now())
+  grantedBy String?
+
+  @@unique([userId, roleId])
+}
+
+// ─── BUSINESS SERVICES ───────────────────────────────────────────────────────
+
+model BusinessService {
+  id              String        @id @default(cuid())
+  ref             String        @unique
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  businessUnitId  String?
+  businessUnit    BusinessUnit? @relation(fields: [businessUnitId], references: [id])
+  businessOwnerId String?
+  businessOwner   User?         @relation("BSOwner", fields: [businessOwnerId], references: [id])
+
+  name          String
+  description   String?
+  criticality   Criticality @default(MEDIUM)
+  status        String      @default("ACTIVE")
+  jurisdictions String[]
+  dataCategories String[]
+  hndlRisk      HndlRisk   @default(UNKNOWN)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  informationAssets BSInformationAsset[]
+  systems           BSSystem[]
+  suppliers         BSSupplier[]
+  risks             RiskBusinessService[]
+  cryptoAssets      CryptoAssetBS[]
+  actions           ActionEntity[]
+  evidence          EvidenceEntity[]
+
+  @@index([tenantId])
+}
+
+// ─── INFORMATION ASSETS ───────────────────────────────────────────────────────
+
+model InformationAsset {
+  id       String @id @default(cuid())
+  ref      String @unique
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  ownerId  String?
+  owner    User?  @relation("IAOwner", fields: [ownerId], references: [id])
+
+  name                          String
+  description                   String?
+  dataCategory                  String
+  classificationConfidentiality String   @default("CONFIDENTIAL")
+  classificationIntegrity       String   @default("HIGH")
+  classificationAvailability    String   @default("HIGH")
+  requiredConfidentialityYears  Int?
+  retentionYears                Int?
+  regulatoryRelevance           String[]
+  jurisdictions                 String[]
+  estimatedRecordCount          BigInt?
+  hndlRisk                      HndlRisk @default(UNKNOWN)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  businessServices  BSInformationAsset[]
+  systems           IASystem[]
+  suppliers         IASupplier[]
+  risks             RiskInfoAsset[]
+  cryptoAssets      CryptoAssetIA[]
+
+  @@index([tenantId])
+}
+
+model BSInformationAsset {
+  businessServiceId  String
+  businessService    BusinessService  @relation(fields: [businessServiceId], references: [id])
+  informationAssetId String
+  informationAsset   InformationAsset @relation(fields: [informationAssetId], references: [id])
+
+  @@id([businessServiceId, informationAssetId])
+}
+
+// ─── SYSTEMS ─────────────────────────────────────────────────────────────────
+
+model OrgSystem {
+  id          String  @id @default(cuid())
+  ref         String  @unique
+  tenantId    String
+  tenant      Tenant  @relation(fields: [tenantId], references: [id])
+  name        String
+  description String?
+  systemType  String?
+  environment String?
+  criticality Criticality @default(MEDIUM)
+  ownerId     String?
+  externalId  String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  businessServices  BSSystem[]
+  informationAssets IASystem[]
+  cryptoAssets      CryptoAssetSystem[]
+  risks             RiskSystem[]
+
+  @@index([tenantId])
+}
+
+model BSSystem {
+  businessServiceId String
+  businessService   BusinessService @relation(fields: [businessServiceId], references: [id])
+  systemId          String
+  system            OrgSystem       @relation(fields: [systemId], references: [id])
+
+  @@id([businessServiceId, systemId])
+}
+
+model IASystem {
+  informationAssetId String
+  informationAsset   InformationAsset @relation(fields: [informationAssetId], references: [id])
+  systemId           String
+  system             OrgSystem        @relation(fields: [systemId], references: [id])
+
+  @@id([informationAssetId, systemId])
+}
+
+// ─── SUPPLIERS ───────────────────────────────────────────────────────────────
+
+model Supplier {
+  id       String @id @default(cuid())
+  ref      String @unique
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  ownerId  String?
+  owner    User?  @relation("SupplierOwner", fields: [ownerId], references: [id])
+
+  name                   String
+  description            String?
+  serviceProvided        String?
+  criticality            Criticality @default(MEDIUM)
+  jurisdictions          String[]
+  dataAccess             String[]
+  dataLongevityRelevant  Boolean     @default(false)
+  quantumReadinessRating String?
+  migrationPlanStatus    String?
+  lastAssessedAt         DateTime?
+  nextAssessmentAt       DateTime?
+  status                 String      @default("ACTIVE")
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+
+  businessServices  BSSupplier[]
+  informationAssets IASupplier[]
+  assessments       SupplierAssessment[]
+  genericAssessments Assessment[]
+  risks             RiskSupplier[]
+  findings          SupplierFinding[]
+  cryptoAssets      CryptoAssetSupplier[]
+
+  @@index([tenantId])
+}
+
+model BSSupplier {
+  businessServiceId String
+  businessService   BusinessService @relation(fields: [businessServiceId], references: [id])
+  supplierId        String
+  supplier          Supplier        @relation(fields: [supplierId], references: [id])
+
+  @@id([businessServiceId, supplierId])
+}
+
+model IASupplier {
+  informationAssetId String
+  informationAsset   InformationAsset @relation(fields: [informationAssetId], references: [id])
+  supplierId         String
+  supplier           Supplier         @relation(fields: [supplierId], references: [id])
+
+  @@id([informationAssetId, supplierId])
+}
+
+model SupplierFinding {
+  id         String   @id @default(cuid())
+  ref        String   @unique
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  title      String
+  description String?
+  severity   Severity  @default(MEDIUM)
+  status     String    @default("OPEN")
+  dueDate    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+// ─── CRYPTOGRAPHIC ALGORITHMS ─────────────────────────────────────────────────
+
+model CryptoAlgorithm {
+  id            String @id @default(cuid())
+  tenantId      String
+  tenant        Tenant @relation(fields: [tenantId], references: [id])
+  family        String
+  name          String
+  variant       String?
+  primitiveType PrimitiveType
+  keySize       Int?
+  parameterSet  String?
+  curve         String?
+  mode          String?
+  hash          String?
+  quantumClass  QuantumClass @default(UNKNOWN)
+  isApproved    Boolean      @default(false)
+  isPqcCandidate Boolean     @default(false)
+  notes         String?
+  policyVersion String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  cryptoAssets CryptoAsset[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// ─── CRYPTOGRAPHIC ASSETS ────────────────────────────────────────────────────
+
+model CryptoAsset {
+  id          String  @id @default(cuid())
+  ref         String  @unique
+  tenantId    String
+  tenant      Tenant  @relation(fields: [tenantId], references: [id])
+  algorithmId String?
+  algorithm   CryptoAlgorithm? @relation(fields: [algorithmId], references: [id])
+
+  name              String
+  description       String?
+  primitiveType     PrimitiveType
+  purpose           String?
+  provider          String?
+  protocol          String?
+  context           String?
+  environment       String?
+  quantumClass      QuantumClass @default(UNKNOWN)
+  liveObserved      Boolean      @default(false)
+  lastObservedAt    DateTime?
+  riskLevel         Severity     @default(MEDIUM)
+  ownerId           String?
+  evidenceConfidence Int         @default(0)
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  // ── Asset inventory fields (added for asset-centric architecture) ──
+  assetType         String?       // TLS_ENDPOINT | SSH_ENDPOINT | CODE_USAGE | LIBRARY | CONTAINER | CERTIFICATE
+  host              String?       // extracted hostname or primary location label
+  repository        String?       // git repository URL (for code/dependency findings)
+  container         String?       // container image name (for container findings)
+  keySize           Int?          // key size in bits
+  curve             String?       // ECC curve name (e.g. P-256, X25519)
+  parameterSet      String?       // PQC parameter set (e.g. ML-KEM-768)
+  migrationStatus   String        @default("NOT_STARTED")  // NOT_STARTED | PLANNED | IN_PROGRESS | COMPLETED | DEFERRED
+  migrationNotes    String?
+  criticality       Criticality   @default(MEDIUM)
+  firstSeenAt       DateTime?     // timestamp of first observation
+  sourceCount       Int           @default(1)  // number of distinct scanner sources
+  assetFingerprint  String?       // deterministic dedup key for upsert
+
+  observations      CryptoObservation[]
+  businessServices  CryptoAssetBS[]
+  systems           CryptoAssetSystem[]
+  informationAssets CryptoAssetIA[]
+  suppliers         CryptoAssetSupplier[]
+  risks             RiskCryptoAsset[]
+  actions           ActionEntity[]
+  evidence          EvidenceEntity[]
+
+  @@index([tenantId])
+  @@index([quantumClass])
+  @@index([assetType])
+  @@index([migrationStatus])
+  @@unique([tenantId, assetFingerprint])
+}
+
+model CryptoAssetBS {
+  cryptoAssetId     String
+  cryptoAsset       CryptoAsset     @relation(fields: [cryptoAssetId], references: [id])
+  businessServiceId String
+  businessService   BusinessService @relation(fields: [businessServiceId], references: [id])
+
+  @@id([cryptoAssetId, businessServiceId])
+}
+
+model CryptoAssetSystem {
+  cryptoAssetId String
+  cryptoAsset   CryptoAsset @relation(fields: [cryptoAssetId], references: [id])
+  systemId      String
+  system        OrgSystem   @relation(fields: [systemId], references: [id])
+
+  @@id([cryptoAssetId, systemId])
+}
+
+model CryptoAssetIA {
+  cryptoAssetId      String
+  cryptoAsset        CryptoAsset      @relation(fields: [cryptoAssetId], references: [id])
+  informationAssetId String
+  informationAsset   InformationAsset @relation(fields: [informationAssetId], references: [id])
+
+  @@id([cryptoAssetId, informationAssetId])
+}
+
+model CryptoAssetSupplier {
+  cryptoAssetId String
+  cryptoAsset   CryptoAsset @relation(fields: [cryptoAssetId], references: [id])
+  supplierId    String
+  supplier      Supplier    @relation(fields: [supplierId], references: [id])
+
+  @@id([cryptoAssetId, supplierId])
+}
+
+// ─── SENSORS & SCAN JOBS ────────────────────────────────────────────────────
+
+model Sensor {
+  id         String  @id @default(cuid())
+  tenantId   String
+  tenant     Tenant  @relation(fields: [tenantId], references: [id])
+  name       String
+  sensorType String
+  version    String?
+  description String?
+  isEnabled  Boolean @default(true)
+  config     Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  scanJobs ScanJob[]
+
+  @@index([tenantId])
+}
+
+model ScanScope {
+  id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  name           String
+  description    String?
+  targets        String[]
+  allowedSensors String[]
+  isActive       Boolean  @default(true)
+  approvedBy     String?
+  approvedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  scanJobs ScanJob[]
+
+  @@index([tenantId])
+}
+
+model ScanJob {
+  id          String    @id @default(cuid())
+  ref         String    @unique
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  sensorId    String
+  sensor      Sensor    @relation(fields: [sensorId], references: [id])
+  scopeId     String?
+  scope       ScanScope? @relation(fields: [scopeId], references: [id])
+
+  requestedBy   String
+  targets       String[]
+  status        String   @default("PENDING")
+  startedAt     DateTime?
+  completedAt   DateTime?
+  workerNode    String?
+  resultCount   Int?
+  errorMessage  String?
+  rawResultPath String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  results CryptoObservation[]
+
+  @@index([tenantId])
+}
+
+// ─── OBSERVATIONS ────────────────────────────────────────────────────────────
+
+model CryptoObservation {
+  id            String    @id @default(cuid())
+  ref           String    @unique
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  scanJobId     String?
+  scanJob       ScanJob?  @relation(fields: [scanJobId], references: [id])
+  cryptoAssetId String?
+  cryptoAsset   CryptoAsset? @relation(fields: [cryptoAssetId], references: [id])
+
+  sensorType     String
+  evidenceSource EvidenceSource
+  observedAt     DateTime
+  expiresAt      DateTime?
+
+  algorithm      String?
+  primitiveType  PrimitiveType?
+  purpose        String?
+  keySize        Int?
+  curve          String?
+  parameterSet   String?
+  protocol       String?
+  endpoint       String?
+  port           Int?
+  filePath       String?
+  lineNumber     Int?
+  packageName    String?
+  packageVersion String?
+  provider       String?
+  context        String?
+  confidence     Int            @default(80)
+  quantumClass   QuantumClass   @default(UNKNOWN)
+
+  rawPayload Json?
+  notes      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  evidenceRecords   EvidenceEntity[]
+  remediationJobs   RemediationJob[]
+
+  @@index([tenantId])
+  @@index([cryptoAssetId])
+}
+
+// ─── RISKS ───────────────────────────────────────────────────────────────────
+
+model Risk {
+  id       String @id @default(cuid())
+  ref      String @unique
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  ownerId  String?
+  owner    User?  @relation("RiskOwner", fields: [ownerId], references: [id])
+
+  title          String
+  statement      String?
+  cause          String?
+  event          String?
+  consequence    String?
+  riskType       String
+  taxonomy       String?
+  businessImpact String?
+
+  likelihoodInherent Int      @default(3)
+  impactInherent     Int      @default(3)
+  inherentScore      Int      @default(9)
+  inherentRating     Severity @default(MEDIUM)
+
+  controlEffectiveness Int      @default(0)
+  residualScore        Int      @default(9)
+  residualRating       Severity @default(MEDIUM)
+
+  riskAppetite  String?
+  riskTolerance String?
+  status        String   @default("OPEN")
+  priority      Int      @default(3)
+  targetDate    DateTime?
+  reviewDate    DateTime?
+  lastReviewedAt DateTime?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businessServices  RiskBusinessService[]
+  informationAssets RiskInfoAsset[]
+  systems           RiskSystem[]
+  suppliers         RiskSupplier[]
+  cryptoAssets      RiskCryptoAsset[]
+  controls          RiskControl[]
+  actions           ActionEntity[]
+  evidence          EvidenceEntity[]
+  exceptions        Exception[]
+  riskAcceptances   RiskAcceptance[]
+  workflowHistory   WorkflowTransition[]
+
+  @@index([tenantId])
+  @@index([residualRating])
+  @@index([status])
+}
+
+model RiskBusinessService {
+  riskId            String
+  risk              Risk            @relation(fields: [riskId], references: [id])
+  businessServiceId String
+  businessService   BusinessService @relation(fields: [businessServiceId], references: [id])
+
+  @@id([riskId, businessServiceId])
+}
+
+model RiskInfoAsset {
+  riskId             String
+  risk               Risk             @relation(fields: [riskId], references: [id])
+  informationAssetId String
+  informationAsset   InformationAsset @relation(fields: [informationAssetId], references: [id])
+
+  @@id([riskId, informationAssetId])
+}
+
+model RiskSystem {
+  riskId   String
+  risk     Risk      @relation(fields: [riskId], references: [id])
+  systemId String
+  system   OrgSystem @relation(fields: [systemId], references: [id])
+
+  @@id([riskId, systemId])
+}
+
+model RiskSupplier {
+  riskId     String
+  risk       Risk     @relation(fields: [riskId], references: [id])
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+
+  @@id([riskId, supplierId])
+}
+
+model RiskCryptoAsset {
+  riskId        String
+  risk          Risk        @relation(fields: [riskId], references: [id])
+  cryptoAssetId String
+  cryptoAsset   CryptoAsset @relation(fields: [cryptoAssetId], references: [id])
+
+  @@id([riskId, cryptoAssetId])
+}
+
+model RiskControl {
+  riskId    String
+  risk      Risk    @relation(fields: [riskId], references: [id])
+  controlId String
+  control   Control @relation(fields: [controlId], references: [id])
+
+  @@id([riskId, controlId])
+}
+
+// ─── CONTROLS ────────────────────────────────────────────────────────────────
+
+model Control {
+  id       String @id @default(cuid())
+  ref      String @unique
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  ownerId  String?
+  owner    User?  @relation("ControlOwner", fields: [ownerId], references: [id])
+
+  domain               String
+  title                String
+  description          String?
+  guidance             String?
+  version              String  @default("1.0")
+  status               String  @default("ACTIVE")
+  supersededById       String?
+  implementationStatus String  @default("NOT_IMPLEMENTED")
+  implementationNotes  String?
+  testFrequency        String?
+
+  lastTestedAt DateTime?
+  nextTestDue  DateTime?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  risks           RiskControl[]
+  requirementMaps ControlMapping[]
+  tests           ControlTest[]
+  evidence        EvidenceEntity[]
+  actions         ActionEntity[]
+  workflowHistory WorkflowTransition[]
+
+  @@index([tenantId])
+  @@index([domain])
+}
+
+// ─── FRAMEWORKS & REQUIREMENTS ───────────────────────────────────────────────
+
+model Framework {
+  id               String    @id @default(cuid())
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  name             String
+  shortName        String
+  issuingAuthority String?
+  jurisdiction     String?
+  industryScope    String[]
+  version          String
+  effectiveDate    DateTime?
+  milestoneDate    DateTime?
+  isApplicable     Boolean   @default(true)
+  isMandatory      Boolean   @default(false)
+  description      String?
+  sourceUrl        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  requirements    Requirement[]
+  alignmentScores FrameworkAlignment[]
+
+  @@unique([tenantId, shortName, version])
+  @@index([tenantId])
+}
+
+model Requirement {
+  id          String    @id @default(cuid())
+  frameworkId String
+  framework   Framework @relation(fields: [frameworkId], references: [id])
+  parentId    String?
+  parent      Requirement?  @relation("RequirementHierarchy", fields: [parentId], references: [id])
+  children    Requirement[] @relation("RequirementHierarchy")
+
+  ref        String
+  title      String
+  text       String?   @db.Text
+  isMandatory Boolean  @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  controlMappings ControlMapping[]
+}
+
+model ControlMapping {
+  id            String      @id @default(cuid())
+  controlId     String
+  control       Control     @relation(fields: [controlId], references: [id])
+  requirementId String
+  requirement   Requirement @relation(fields: [requirementId], references: [id])
+  mappingType   String      @default("SUPPORTS")
+  notes         String?
+  createdAt     DateTime    @default(now())
+
+  @@unique([controlId, requirementId])
+}
+
+model FrameworkAlignment {
+  id                   String          @id @default(cuid())
+  frameworkId          String
+  framework            Framework       @relation(fields: [frameworkId], references: [id])
+  tenantId             String
+  calculatedAt         DateTime        @default(now())
+  alignedPct           Float           @default(0)
+  partialPct           Float           @default(0)
+  notAlignedPct        Float           @default(0)
+  notAssessedPct       Float           @default(0)
+  evidenceCompleteness Float           @default(0)
+  controlImplementation Float          @default(0)
+  openGaps             Int             @default(0)
+  confidence           String          @default("LOW")
+  status               AlignmentStatus @default(NOT_ASSESSED)
+  details              Json?
+}
+
+// ─── EVIDENCE ────────────────────────────────────────────────────────────────
+
+model Evidence {
+  id       String @id @default(cuid())
+  ref      String @unique
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  title             String
+  evidenceType      String
+  sourceSystem      String?
+  collectedById     String?
+  collectionMethod  String    @default("MANUAL")
+  collectedAt       DateTime  @default(now())
+  effectiveFrom     DateTime?
+  effectiveTo       DateTime?
+  expiresAt         DateTime?
+
+  verificationState EvidenceState @default(PENDING_VERIFICATION)
+  verifiedById      String?
+  verifiedAt        DateTime?
+
+  filePath      String?
+  fileName      String?
+  fileSize      BigInt?
+  mimeType      String?
+  integrityHash String?
+
+  version           Int     @default(1)
+  previousVersionId String?
+  isLatest          Boolean @default(true)
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entities EvidenceEntity[]
+
+  @@index([tenantId])
+  @@index([verificationState])
+}
+
+model EvidenceEntity {
+  id            String   @id @default(cuid())
+  evidenceId    String
+  evidence      Evidence @relation(fields: [evidenceId], references: [id])
+  entityType    String
+
+  riskId          String?
+  risk            Risk?             @relation(fields: [riskId], references: [id])
+  controlId       String?
+  control         Control?          @relation(fields: [controlId], references: [id])
+  actionId        String?
+  action          Action?           @relation(fields: [actionId], references: [id])
+  observationId   String?
+  observation     CryptoObservation? @relation(fields: [observationId], references: [id])
+  cryptoAssetId   String?
+  cryptoAsset     CryptoAsset?      @relation(fields: [cryptoAssetId], references: [id])
+  businessServiceId String?
+  businessService BusinessService?  @relation(fields: [businessServiceId], references: [id])
+}
+
+// ─── ACTIONS ─────────────────────────────────────────────────────────────────
+
+model Action {
+  id          String    @id @default(cuid())
+  ref         String    @unique
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  ownerId     String?
+  owner       User?     @relation("ActionOwner", fields: [ownerId], references: [id])
+  assigneeId  String?
+  assignee    User?     @relation("ActionAssignee", fields: [assigneeId], references: [id])
+  programmeId String?
+  programme   Programme? @relation(fields: [programmeId], references: [id])
+
+  title          String
+  description    String?
+  actionType     String   @default("REMEDIATION")
+  priority       Severity @default(MEDIUM)
+  status         String   @default("OPEN")
+  dueDate        DateTime?
+  completedAt    DateTime?
+  externalRef    String?
+  externalSystem String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  entities        ActionEntity[]
+  evidence        EvidenceEntity[]
+  approvals       Approval[]
+  workflowHistory WorkflowTransition[]
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([ownerId])
+}
+
+model ActionEntity {
+  id            String   @id @default(cuid())
+  actionId      String
+  action        Action   @relation(fields: [actionId], references: [id])
+  entityType    String
+
+  riskId          String?
+  risk            Risk?             @relation(fields: [riskId], references: [id])
+  controlId       String?
+  control         Control?          @relation(fields: [controlId], references: [id])
+  cryptoAssetId   String?
+  cryptoAsset     CryptoAsset?      @relation(fields: [cryptoAssetId], references: [id])
+  businessServiceId String?
+  businessService BusinessService?  @relation(fields: [businessServiceId], references: [id])
+}
+
+// ─── EXCEPTIONS & RISK ACCEPTANCES ──────────────────────────────────────────
+
+model Exception {
+  id       String  @id @default(cuid())
+  ref      String  @unique
+  tenantId String
+  tenant   Tenant  @relation(fields: [tenantId], references: [id])
+  riskId   String?
+  risk     Risk?   @relation(fields: [riskId], references: [id])
+
+  title                String
+  rationale            String?
+  status               String   @default("DRAFT")
+  approvedById         String?
+  approvedAt           DateTime?
+  expiresAt            DateTime?
+  compensatingControls String?
+  conditions           String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  approvals Approval[]
+
+  @@index([tenantId])
+}
+
+model RiskAcceptance {
+  id       String  @id @default(cuid())
+  ref      String  @unique
+  tenantId String
+  tenant   Tenant  @relation(fields: [tenantId], references: [id])
+  riskId   String?
+  risk     Risk?   @relation(fields: [riskId], references: [id])
+
+  title         String
+  justification String?
+  status        String   @default("DRAFT")
+  acceptedById  String?
+  acceptedAt    DateTime?
+  expiresAt     DateTime?
+  conditions    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  approvals Approval[]
+
+  @@index([tenantId])
+}
+
+model Approval {
+  id         String  @id @default(cuid())
+  approverId String
+  approver   User    @relation(fields: [approverId], references: [id])
+  entityType String
+
+  actionId         String?
+  action           Action?         @relation(fields: [actionId], references: [id])
+  exceptionId      String?
+  exception        Exception?      @relation(fields: [exceptionId], references: [id])
+  riskAcceptanceId String?
+  riskAcceptance   RiskAcceptance? @relation(fields: [riskAcceptanceId], references: [id])
+
+  decision  String
+  comments  String?
+  decidedAt DateTime?
+  createdAt DateTime  @default(now())
+}
+
+// ─── CONTROL TESTS ───────────────────────────────────────────────────────────
+
+model ControlTest {
+  id        String  @id @default(cuid())
+  ref       String  @unique
+  controlId String
+  control   Control @relation(fields: [controlId], references: [id])
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+
+  title       String
+  testMethod  String?
+  testerId    String?
+  status      String   @default("PLANNED")
+  scheduledAt DateTime?
+  completedAt DateTime?
+  findings    String?
+  result      String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+// ─── ASSESSMENTS ─────────────────────────────────────────────────────────────
+
+model AssessmentTemplate {
+  id           String  @id @default(cuid())
+  tenantId     String
+  name         String
+  templateType String
+  version      Int     @default(1)
+  description  String?
+  isActive     Boolean @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  questions   AssessmentQuestion[]
+  assessments Assessment[]
+}
+
+model AssessmentQuestion {
+  id           String             @id @default(cuid())
+  templateId   String
+  template     AssessmentTemplate @relation(fields: [templateId], references: [id])
+  order        Int
+  domain       String?
+  questionText String
+  questionType String             @default("YES_NO")
+  options      Json?
+  isRequired   Boolean            @default(true)
+  weight       Float              @default(1.0)
+  guidance     String?
+  createdAt    DateTime           @default(now())
+
+  responses AssessmentResponse[]
+}
+
+model Assessment {
+  id          String   @id @default(cuid())
+  ref         String   @unique
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  templateId  String
+  template    AssessmentTemplate @relation(fields: [templateId], references: [id])
+  supplierId  String?
+  supplier    Supplier? @relation(fields: [supplierId], references: [id])
+
+  title          String
+  assessmentType String
+  subjectType    String
+  subjectId      String?
+  assessorId     String?
+  status         String   @default("DRAFT")
+  dueDate        DateTime?
+  completedAt    DateTime?
+  score          Float?
+  rating         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  responses AssessmentResponse[]
+
+  @@index([tenantId])
+}
+
+model SupplierAssessment {
+  id         String   @id @default(cuid())
+  ref        String   @unique
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  tenantId   String
+  status     String   @default("DRAFT")
+  score      Float?
+  rating     String?
+  completedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AssessmentResponse {
+  id           String             @id @default(cuid())
+  assessmentId String
+  assessment   Assessment         @relation(fields: [assessmentId], references: [id])
+  questionId   String
+  question     AssessmentQuestion @relation(fields: [questionId], references: [id])
+  responseValue String?
+  evidenceRef  String?
+  notes        String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@unique([assessmentId, questionId])
+}
+
+// ─── PROGRAMMES ──────────────────────────────────────────────────────────────
+
+model Programme {
+  id       String @id @default(cuid())
+  ref      String @unique
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  title           String
+  description     String?
+  programmeType   String   @default("PQC_MIGRATION")
+  ownerId         String?
+  sponsorId       String?
+  targetFramework String?
+  targetReadiness Int?
+  status          String   @default("PLANNING")
+  progress        Float    @default(0)
+  startDate       DateTime?
+  targetDate      DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  phases  ProgrammePhase[]
+  actions Action[]
+
+  @@index([tenantId])
+}
+
+model ProgrammePhase {
+  id          String    @id @default(cuid())
+  programmeId String
+  programme   Programme @relation(fields: [programmeId], references: [id])
+  order       Int
+  name        String
+  description String?
+  status      String    @default("PLANNED")
+  startDate   DateTime?
+  targetDate  DateTime?
+  completedAt DateTime?
+  projectedScore Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// ─── READINESS SCORING ───────────────────────────────────────────────────────
+
+model ScoringPolicy {
+  id          String  @id @default(cuid())
+  tenantId    String
+  tenant      Tenant  @relation(fields: [tenantId], references: [id])
+  version     String
+  isActive    Boolean @default(true)
+  description String?
+  dimensions  Json
+  effectiveAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  readinessScores ReadinessScore[]
+
+  @@index([tenantId])
+}
+
+model ReadinessScore {
+  id              String        @id @default(cuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  scoringPolicyId String
+  scoringPolicy   ScoringPolicy @relation(fields: [scoringPolicyId], references: [id])
+  calculatedAt    DateTime      @default(now())
+  overallScore    Float         @default(0)
+  overallRating   String        @default("HIGH_EXPOSURE")
+  previousScore   Float?
+  scoreChange     Float?
+  dimensions      Json
+  factors         Json?
+  evidenceCoverage Float        @default(0)
+  confidence      String        @default("LOW")
+  periodStart     DateTime?
+  periodEnd       DateTime?
+
+  @@index([tenantId])
+}
+
+// ─── REPORTS ─────────────────────────────────────────────────────────────────
+
+model Report {
+  id          String  @id @default(cuid())
+  ref         String  @unique
+  tenantId    String
+  tenant      Tenant  @relation(fields: [tenantId], references: [id])
+  title       String
+  reportType  String  @default("BOARD")
+  generatedById String?
+  generatedAt DateTime @default(now())
+  dataCutoff  DateTime?
+  periodStart DateTime?
+  periodEnd   DateTime?
+  scoringPolicyVersion String?
+  status      String  @default("DRAFT")
+  filePath    String?
+  fileSize    BigInt?
+  integrityHash String?
+  config      Json?
+  createdAt   DateTime @default(now())
+}
+
+// ─── WORKFLOW ────────────────────────────────────────────────────────────────
+
+model WorkflowTransition {
+  id         String   @id @default(cuid())
+  entityType String
+  riskId     String?
+  risk       Risk?    @relation(fields: [riskId], references: [id])
+  controlId  String?
+  control    Control? @relation(fields: [controlId], references: [id])
+  actionId   String?
+  action     Action?  @relation(fields: [actionId], references: [id])
+  fromStatus String
+  toStatus   String
+  performedBy String
+  comment    String?
+  timestamp  DateTime @default(now())
+}
+
+// ─── AUDIT & EVENTS ──────────────────────────────────────────────────────────
+
+model AuditEvent {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  entityRef  String?
+  changes    Json?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  timestamp  DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([entityType, entityId])
+  @@index([timestamp])
+}
+
+model DomainEvent {
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  eventType   String
+  payload     Json
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@index([tenantId])
+  @@index([eventType])
+}
+
+model RemediationJob {
+  id              String    @id @default(cuid())
+  ref             String    @unique
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id])
+  observationId   String
+  observation     CryptoObservation @relation(fields: [observationId], references: [id])
+  requestedById   String
+  requestedBy     User      @relation("RemediationRequester", fields: [requestedById], references: [id])
+
+  repoUrl         String
+  filePath        String
+  algorithm       String
+  suggestedAlgorithm String?
+  status          String    @default("PENDING")   // PENDING | RUNNING | REVIEW | APPROVED | REJECTED | APPLIED | FAILED
+  agentModel      String    @default("claude-sonnet-5")
+  agentReasoning  String?
+  diffPatch       String?
+  patchedContent  String?
+  originalContent String?
+  prUrl           String?
+  errorMessage    String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  appliedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([observationId])
+  @@index([status])
+}
+
+model Notification {
+  id         String  @id @default(cuid())
+  tenantId   String
+  tenant     Tenant  @relation(fields: [tenantId], references: [id])
+  userId     String
+  title      String
+  body       String?
+  entityType String?
+  entityId   String?
+  entityRef  String?
+  isRead     Boolean  @default(false)
+  readAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, userId])
+}
+
+// ─── ENUMS ───────────────────────────────────────────────────────────────────
+
+enum Criticality {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFORMATIONAL
+}
+
+enum HndlRisk {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  NOT_APPLICABLE
+  UNKNOWN
+}
+
+enum QuantumClass {
+  QUANTUM_VULNERABLE
+  QUANTUM_REDUCED_SECURITY
+  QUANTUM_RESILIENT
+  POST_QUANTUM
+  HYBRID
+  UNKNOWN
+  NOT_APPLICABLE
+}
+
+enum PrimitiveType {
+  KEY_ESTABLISHMENT
+  DIGITAL_SIGNATURE
+  PUBLIC_KEY_ENCRYPTION
+  SYMMETRIC_ENCRYPTION
+  HASH
+  MAC
+  KDF
+  PASSWORD_HASHING
+  RANDOMNESS
+  CERTIFICATE
+  OTHER
+}
+
+enum EvidenceSource {
+  OBSERVED_LIVE
+  ACTIVE_HANDSHAKE
+  RUNTIME_TELEMETRY
+  CONFIGURATION
+  STATIC_DETECTION
+  DEPENDENCY_INFERENCE
+  CBOM_IMPORT
+  MANUAL_EVIDENCE
+  VENDOR_ATTESTATION
+}
+
+enum EvidenceState {
+  VERIFIED
+  PENDING_VERIFICATION
+  EXPIRED
+  REJECTED
+  MISSING
+}
+
+enum AlignmentStatus {
+  ALIGNED
+  PARTIALLY_ALIGNED
+  NOT_ALIGNED
+  NOT_ASSESSED
+  NOT_APPLICABLE
+}

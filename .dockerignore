@@ -1,0 +1,12 @@
+.next
+node_modules
+.git
+.env
+.env.local
+.env.production
+scripts
+*.md
+Dockerfile
+.dockerignore
+prisma/seed*.js
+prisma/seed*.ts

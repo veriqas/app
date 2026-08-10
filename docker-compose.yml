@@ -1,0 +1,84 @@
+services:
+  # ── Database ──────────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: veriqas
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-veriqas_secret}
+      POSTGRES_DB: veriqas
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veriqas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Database migration (runs once, then exits) ────────────────────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    env_file: .env.docker
+    environment:
+      DATABASE_URL: postgresql://veriqas:${DB_PASSWORD:-veriqas_secret}@db:5432/veriqas?sslmode=disable&schema=senqor
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # ── App (web + API) ───────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    ports:
+      - "${PORT:-4000}:4000"
+    env_file: .env.docker
+    environment:
+      DATABASE_URL: postgresql://veriqas:${DB_PASSWORD:-veriqas_secret}@db:5432/veriqas?sslmode=disable&schema=senqor
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/auth/session"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+
+  # ── Worker (scan job poller) ──────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    env_file: .env.docker
+    environment:
+      DATABASE_URL: postgresql://veriqas:${DB_PASSWORD:-veriqas_secret}@db:5432/veriqas?sslmode=disable&schema=senqor
+    restart: unless-stopped
+    volumes:
+      - worker-tmp:/tmp
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/worker.heartbeat && test $(($(date +%s) - $(cat /tmp/worker.heartbeat))) -lt 60"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:
+  worker-tmp:

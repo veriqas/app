@@ -39,3 +39,23 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+.env.docker
+
+# dev logs and test scripts
+*.log
+auth_req_test.js
+auth_test.js
+check-*.js
+chunk_test.js
+csrf_test.js
+db_test.js
+get-tenant-id.js
+prisma_test.js
+verify-seed.js
+dev-err.log
+dev-out.log
+
+# claude session
+.claude/
