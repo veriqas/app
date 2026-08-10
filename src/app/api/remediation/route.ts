@@ -12,15 +12,21 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const observationId = searchParams.get("observationId");
 
-  const jobs = await db.$queryRawUnsafe<Record<string, unknown>[]>(`
-    SELECT rj.*, u.name as "requestedByName"
-    FROM senqor."RemediationJob" rj
-    LEFT JOIN senqor."User" u ON u.id = rj."requestedById"
-    WHERE rj."tenantId" = $1
-    ${observationId ? `AND rj."observationId" = '${observationId}'` : ""}
-    ORDER BY rj."createdAt" DESC
-    LIMIT 50
-  `, ctx.tenantId);
+  const jobs = observationId
+    ? await db.$queryRawUnsafe<Record<string, unknown>[]>(`
+        SELECT rj.*, u.name as "requestedByName"
+        FROM senqor."RemediationJob" rj
+        LEFT JOIN senqor."User" u ON u.id = rj."requestedById"
+        WHERE rj."tenantId" = $1 AND rj."observationId" = $2
+        ORDER BY rj."createdAt" DESC LIMIT 50
+      `, ctx.tenantId, observationId)
+    : await db.$queryRawUnsafe<Record<string, unknown>[]>(`
+        SELECT rj.*, u.name as "requestedByName"
+        FROM senqor."RemediationJob" rj
+        LEFT JOIN senqor."User" u ON u.id = rj."requestedById"
+        WHERE rj."tenantId" = $1
+        ORDER BY rj."createdAt" DESC LIMIT 50
+      `, ctx.tenantId);
 
   return NextResponse.json(jobs);
 }

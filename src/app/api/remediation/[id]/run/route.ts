@@ -144,7 +144,9 @@ ${originalContent}`;
       system: systemPrompt,
     });
 
-    const patchedContent = (response.content[0] as { type: string; text: string }).text.trim();
+    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+    if (!textBlock?.text) throw new Error("No text response from AI agent");
+    const patchedContent = textBlock.text.trim();
     const diffPatch = generateUnifiedDiff(originalContent, patchedContent, filePath);
 
     const reasoning = `Agent analysed ${filePath} for ${algorithm} usage. ${pqcGuide.rationale} Replaced with: ${pqcGuide.algorithm}. Review the diff carefully before approving — architectural changes may be needed for full PQC migration.`;
