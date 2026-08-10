@@ -1,10 +1,10 @@
-# SENQOR — Quantum Risk & Compliance Platform
+# VERIQAS — Verified Quantum Assurance and Governance
 
-SENQOR is an enterprise-grade Quantum Risk, Compliance and Governance (QRC) platform built for Chief Risk Officers, CISOs, CIOs and Board Risk Committees.
+VERIQAS is an enterprise-grade Verified Quantum Assurance and Governance platform built for Chief Risk Officers, CISOs, CIOs and Board Risk Committees.
 
 ## Platform Purpose
 
-SENQOR answers the critical questions facing organisations in the post-quantum transition:
+VERIQAS answers the critical questions facing organisations in the post-quantum transition:
 
 1. Are we quantum ready?
 2. What is our current quantum exposure?
@@ -63,7 +63,7 @@ Tenant:   Northstar Financial Group
 | Business Services | /business-services | Phase 1 |
 | Cryptographic Inventory | /crypto-inventory | Phase 1 |
 | Compliance Posture | /compliance | Phase 1 |
-| Control Library (SQCF) | /controls | Phase 1 |
+| Control Library (VQCF) | /controls | Phase 1 |
 | Actions | /actions | Phase 1 |
 | Evidence | /evidence | Phase 1 |
 | My Work | /my-work | Phase 1 |
@@ -90,9 +90,9 @@ Tenant:   Northstar Financial Group
 
 Every score is explainable — no black-box calculations.
 
-## SQCF
+## VQCF
 
-SQCF (SENQOR Quantum Control Framework) is SENQOR's internal control normalization framework.
+VQCF (VERIQAS Quantum Control Framework) is VERIQAS's internal control normalisation framework.
 **Not a government standard.**
 
 Domains: GV · ID · DC · RA · CR · CA · MG · SC · EV · AU
