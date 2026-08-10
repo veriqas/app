@@ -122,12 +122,20 @@ export async function calculateAndStoreReadinessScore(tenantId: string): Promise
     )
   );
 
-  // Load previous score for delta
-  const prev = await db.readinessScore.findFirst({
-    where: { tenantId },
-    orderBy: { calculatedAt: "desc" },
-    select: { overallScore: true },
-  });
+  // Load previous score and active scoring policy in parallel
+  const [prev, policy] = await Promise.all([
+    db.readinessScore.findFirst({
+      where: { tenantId },
+      orderBy: { calculatedAt: "desc" },
+      select: { overallScore: true },
+    }),
+    db.scoringPolicy.findFirst({
+      where: { tenantId, isActive: true },
+      select: { id: true },
+    }),
+  ]);
+
+  if (!policy) throw new Error(`No active ScoringPolicy found for tenant ${tenantId}`);
 
   const dimensionsJson: Record<string, number> = {};
   for (const key of Object.keys(DIMENSIONS) as DimensionKey[]) {
@@ -136,14 +144,15 @@ export async function calculateAndStoreReadinessScore(tenantId: string): Promise
 
   await db.readinessScore.create({
     data: {
-      tenantId,
+      tenant:        { connect: { id: tenantId } },
+      scoringPolicy: { connect: { id: policy.id } },
       overallScore,
       previousScore: prev?.overallScore ?? null,
-      scoreChange: prev != null ? overallScore - prev.overallScore : null,
+      scoreChange:   prev != null ? overallScore - prev.overallScore : null,
       overallRating: rating(overallScore),
-      confidence: confidence(totalAssets, totalObs, scansCount),
-      calculatedAt: new Date(),
-      dimensions: dimensionsJson,
+      confidence:    confidence(totalAssets, totalObs, scansCount),
+      calculatedAt:  new Date(),
+      dimensions:    dimensionsJson,
     },
   });
 
