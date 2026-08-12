@@ -129,9 +129,10 @@ export function OnboardingTour() {
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — kept nearly transparent so the dashboard stays visible
+          while the tour describes it. Click anywhere outside the card to dismiss. */}
       <div
-        className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm"
+        className="fixed inset-0 z-40 bg-slate-950/10"
         onClick={dismiss}
       />
 
