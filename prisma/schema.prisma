@@ -45,6 +45,7 @@ model Tenant {
   notifications     Notification[]
   remediationJobs   RemediationJob[]
   remediationCases  RemediationCase[]
+  verificationRuns  VerificationRun[]
   sensors           Sensor[]
   jurisdictions     OrgJurisdiction[]
   reports           Report[]
@@ -1374,7 +1375,8 @@ model RemediationCase {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  findings RemediationCaseFinding[]
+  findings         RemediationCaseFinding[]
+  verificationRuns VerificationRun[]
 
   @@index([tenantId])
   @@index([status])
@@ -1395,6 +1397,99 @@ model RemediationCaseFinding {
 
   @@unique([caseId, observationId])
   @@index([observationId])
+}
+
+// ─── REMEDIATION VERIFICATION (V2 — additive, feature-flagged) ─────────────────
+// A VerificationRun records ONE attempt to prove a RemediationCase was resolved.
+// It captures an immutable BEFORE baseline, re-runs the relevant scanners
+// (through the existing public engine interfaces — read-only, never writing to
+// the live observation store), optionally builds/tests, and compares. The
+// scanner/build/test EVIDENCE determines the verdict — never the AI's opinion.
+// Only populated when REMEDIATION_ENGINE=v2; entirely dormant under the default.
+model VerificationRun {
+  id        String   @id @default(cuid())
+  ref       String   @unique
+  caseId    String
+  case      RemediationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+
+  // Lifecycle + terminal verdict, e.g. PENDING | RUNNING | BASELINING | BUILDING
+  // | TESTING | RESCANNING | COMPARING | VERIFIED | VERIFIED_WITH_WARNINGS |
+  // FAILED | REGRESSED | BUILD_FAILED | TEST_FAILED | SCAN_FAILED | TIMEOUT |
+  // VERIFICATION_ERROR | CANCELLED | NO_BASELINE
+  status        String @default("PENDING")
+  verdictReason String?
+
+  repoUrl   String?
+  baseRef   String?   // repo revision the baseline reflects, if known
+  patchRef  String?   // repo revision after the change, if known
+
+  timeoutMs  Int      @default(600000)
+  deadlineAt DateTime
+  startedAt  DateTime?
+  finishedAt DateTime?
+  durationMs Int?
+
+  // Build / test outcomes: NOT_RUN | SKIPPED | PASS | FAIL
+  buildStatus String?
+  buildResult Json?
+  testStatus  String?
+  testResult  Json?
+
+  // Comparison rollup, e.g. { resolved, residual, moved, newHigh, newLow }
+  summary Json?
+  error   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  findings       VerificationFinding[]
+  scannerResults VerificationScannerResult[]
+
+  @@index([caseId])
+  @@index([tenantId])
+  @@index([status])
+}
+
+// Immutable BEFORE/AFTER finding snapshots — the evidence behind a verdict.
+model VerificationFinding {
+  id                String   @id @default(cuid())
+  verificationRunId String
+  run               VerificationRun @relation(fields: [verificationRunId], references: [id], onDelete: Cascade)
+
+  phase             String   // BEFORE | AFTER
+  scanner           String
+  fingerprint       String   // stable identity: scanner|rule/algo|normalizedLocation|dependency
+  algorithm         String?
+  ruleId            String?
+  normalizedLocation String?
+  dependency        String?
+  severity          String?
+  // Links a BEFORE snapshot back to its source observation (nullable).
+  observationId     String?
+  rawJson           Json?
+  createdAt         DateTime @default(now())
+
+  @@index([verificationRunId])
+  @@index([fingerprint])
+}
+
+// Per-scanner run metadata for a verification phase (health/coverage/failure).
+model VerificationScannerResult {
+  id                String   @id @default(cuid())
+  verificationRunId String
+  run               VerificationRun @relation(fields: [verificationRunId], references: [id], onDelete: Cascade)
+
+  phase        String   // BEFORE | AFTER
+  scanner      String
+  status       String   // OK | UNAVAILABLE | ERROR | TIMEOUT | SKIPPED
+  findingCount Int      @default(0)
+  durationMs   Int?
+  error        String?
+  createdAt    DateTime @default(now())
+
+  @@index([verificationRunId])
 }
 
 model Notification {
