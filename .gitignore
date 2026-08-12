@@ -60,7 +60,10 @@ dev-out.log
 # claude session
 .claude/
 
-# penetration test evidence — never commit findings
-/evidence/*
-!/evidence/.gitkeep
-!/evidence/scope.txt
+# AI coding-assistant instructions (dev-only, not part of the product)
+CLAUDE.md
+OPERATING_SYSTEM.md
+AGENTS.md
+
+# penetration test evidence and scope — never commit
+/evidence/
