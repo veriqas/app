@@ -44,6 +44,7 @@ model Tenant {
   domainEvents      DomainEvent[]
   notifications     Notification[]
   remediationJobs   RemediationJob[]
+  remediationCases  RemediationCase[]
   sensors           Sensor[]
   jurisdictions     OrgJurisdiction[]
   reports           Report[]
@@ -613,6 +614,7 @@ model CryptoObservation {
 
   evidenceRecords   EvidenceEntity[]
   remediationJobs   RemediationJob[]
+  caseFindings      RemediationCaseFinding[]
 
   @@index([tenantId])
   @@index([cryptoAssetId])
@@ -1336,6 +1338,63 @@ model RemediationJob {
   @@index([tenantId])
   @@index([observationId])
   @@index([status])
+}
+
+// ─── REMEDIATION CORRELATION (V2 — additive, feature-flagged) ─────────────────
+// A RemediationCase is an AGGREGATION layer over multiple CryptoObservation
+// findings that share a common root cause. It NEVER replaces or deletes the
+// underlying observations — the scanner evidence remains the source of truth.
+// This model is only populated when REMEDIATION_ENGINE=v2. Under the default
+// (v1) the existing per-observation RemediationJob flow is entirely unaffected.
+model RemediationCase {
+  id             String   @id @default(cuid())
+  ref            String   @unique
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+
+  title          String
+  repoUrl        String?
+  algorithm      String?
+  purpose        String?
+  vulnerabilityType String?
+  rootCause      String?
+  securityImpact String?
+  // Selected remediation strategy — populated in a later phase; nullable now.
+  strategy       String?
+  // Deterministic key used to group findings (repo|file|algorithm|purpose).
+  correlationKey String
+  // Which scanners contributed evidence, e.g. ["CRYPTOSCAN","SEMGREP"].
+  evidenceSources      String[]
+  affectedFiles        String[]
+  affectedDependencies String[]
+  confidence     Int      @default(0)
+  findingCount   Int      @default(0)
+  status         String   @default("OPEN") // OPEN | PLANNED | IN_PROGRESS | VERIFIED | FAILED | DISMISSED
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  findings RemediationCaseFinding[]
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([correlationKey])
+}
+
+// Join table linking a RemediationCase to the observations it aggregates.
+// Cascade delete only removes the LINK when a case is deleted — the underlying
+// CryptoObservation is never touched.
+model RemediationCaseFinding {
+  id            String   @id @default(cuid())
+  caseId        String
+  case          RemediationCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  observationId String
+  observation   CryptoObservation @relation(fields: [observationId], references: [id])
+  sensorType    String
+  addedAt       DateTime @default(now())
+
+  @@unique([caseId, observationId])
+  @@index([observationId])
 }
 
 model Notification {
