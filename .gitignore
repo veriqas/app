@@ -59,3 +59,8 @@ dev-out.log
 
 # claude session
 .claude/
+
+# penetration test evidence — never commit findings
+/evidence/*
+!/evidence/.gitkeep
+!/evidence/scope.txt

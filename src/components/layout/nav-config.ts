@@ -96,6 +96,8 @@ export const navSections: NavSection[] = [
   {
     label: "Administration",
     items: [
+      { label: "Organisation", href: "/admin/organisation", icon: Building2 },
+      { label: "Users", href: "/admin/users", icon: Users },
       { label: "Environment Health", href: "/admin/environment", icon: Activity },
     ],
   },

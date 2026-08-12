@@ -4,9 +4,10 @@ import { Badge, severityBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/ui/stat-card";
 import { formatDate } from "@/lib/utils";
-import { Plus, Filter, Building2, AlertOctagon, Clock } from "lucide-react";
+import { Filter, Building2, AlertOctagon, Clock } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { getServerSession } from "@/lib/auth/session";
+import { AddSupplierButton } from "@/components/suppliers/add-supplier-button";
 
 function qrBadge(rating: string | null) {
   if (!rating || rating === "NOT_ASSESSED") return <Badge variant="not-assessed">Not Assessed</Badge>;
@@ -53,7 +54,7 @@ export default async function SuppliersPage() {
       actions={
         <div className="flex gap-2">
           <Button variant="outline" size="sm"><Filter className="h-3.5 w-3.5" /> Filter</Button>
-          <Button size="sm"><Plus className="h-3.5 w-3.5" /> Add Supplier</Button>
+          <AddSupplierButton />
         </div>
       }
     >

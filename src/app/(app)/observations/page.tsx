@@ -85,6 +85,19 @@ export default async function ObservationsPage({
   const total = observations.length;
   const maxClass = Math.max(1, ...byClass.map(c => c._count));
 
+  // Load existing remediation jobs for all observations in view
+  const obsIds = observations.map(o => o.id);
+  const remJobs = obsIds.length > 0
+    ? await db.$queryRawUnsafe<{ observationId: string; id: string; status: string }[]>(`
+        SELECT "observationId", id, status
+        FROM senqor."RemediationJob"
+        WHERE "observationId" = ANY($1::text[])
+        AND status NOT IN ('REJECTED', 'FAILED')
+        ORDER BY "createdAt" DESC
+      `, obsIds)
+    : [];
+  const remJobByObs = new Map(remJobs.map(j => [j.observationId, j]));
+
   // Group observations by scanJobId
   const byJob = new Map<string | null, typeof observations>();
   for (const obs of observations) {
@@ -290,7 +303,12 @@ export default async function ObservationsPage({
                         </td>
                         <td style={{ padding: "8px 14px", whiteSpace: "nowrap" }}>
                           {obs.sensorType === "CRYPTOSCAN" && obs.filePath && (
-                            <RemediateButton observationId={obs.id} quantumClass={obs.quantumClass} />
+                            <RemediateButton
+                              observationId={obs.id}
+                              quantumClass={obs.quantumClass}
+                              existingJobId={remJobByObs.get(obs.id)?.id}
+                              existingJobStatus={remJobByObs.get(obs.id)?.status}
+                            />
                           )}
                         </td>
                       </tr>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/auth", "/_next", "/favicon", "/senqor"];
+const PUBLIC_PATHS = ["/login", "/setup", "/api/auth", "/api/setup", "/_next", "/favicon", "/senqor"];
 const INTERNAL_SECRET = "veriqas-internal-2026";
 
 // Use __Secure- prefix only when running on HTTPS (AUTH_URL starts with https://)
