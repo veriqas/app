@@ -95,5 +95,16 @@ export function calculateVerdict(input: VerdictInput): Verdict {
   if (c.newLow.length > 0) {
     return { state: "VERIFIED_WITH_WARNINGS", reason: `Original finding(s) resolved; ${c.newLow.length} new lower-severity finding(s) noted for review.` };
   }
-  return { state: "VERIFIED", reason: "All original findings are resolved by scanner evidence, with no new serious findings and no build/test failures." };
+  // Full VERIFIED requires the build AND tests to have actually PASSED. When
+  // build/test were SKIPPED/NOT_RUN (no isolated execution environment), the
+  // remediation is SCANNER-verified only — reported with an explicit warning so
+  // it is never conflated with a fully verified software change.
+  const fullyBuilt = input.buildStatus === "PASS" && input.testStatus === "PASS";
+  if (!fullyBuilt) {
+    return {
+      state: "VERIFIED_WITH_WARNINGS",
+      reason: "Remediation was verified against the relevant security scanners (original findings resolved, no new serious findings), but build/test execution was not performed because no isolated execution environment is available. This is scanner-verified, not a fully verified software change.",
+    };
+  }
+  return { state: "VERIFIED", reason: "All original findings are resolved by scanner evidence, the build and tests passed, and no new serious findings were introduced." };
 }

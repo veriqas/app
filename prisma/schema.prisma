@@ -46,6 +46,7 @@ model Tenant {
   remediationJobs   RemediationJob[]
   remediationCases  RemediationCase[]
   verificationRuns  VerificationRun[]
+  remediationAttempts RemediationAttempt[]
   sensors           Sensor[]
   jurisdictions     OrgJurisdiction[]
   reports           Report[]
@@ -1377,6 +1378,7 @@ model RemediationCase {
 
   findings         RemediationCaseFinding[]
   verificationRuns VerificationRun[]
+  attempts         RemediationAttempt[]
 
   @@index([tenantId])
   @@index([status])
@@ -1490,6 +1492,85 @@ model VerificationScannerResult {
   createdAt    DateTime @default(now())
 
   @@index([verificationRunId])
+}
+
+// ─── AI REMEDIATION V2 (Phase 3 — additive, feature-flagged) ──────────────────
+// A RemediationAttempt is ONE staged AI attempt to remediate a RemediationCase:
+// investigate -> root-cause -> plan -> patch -> (apply to ephemeral workspace) ->
+// verify via the Phase 2 engine. The AI never sets the verdict; the deterministic
+// verification engine does. A case allows at most 3 attempts (feedback loop).
+// Only populated when REMEDIATION_ENGINE=v2; V1 RemediationJob is untouched.
+model RemediationAttempt {
+  id        String @id @default(cuid())
+  ref       String @unique
+  caseId    String
+  case      RemediationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  tenantId  String
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+
+  attemptNumber Int
+  // PENDING | INVESTIGATING | PLANNING | PATCHING | VERIFYING | REVIEW |
+  // VERIFIED | VERIFIED_WITH_WARNINGS | FAILED | REGRESSED | ERROR | ABANDONED
+  status        String @default("PENDING")
+  strategy      String?
+
+  investigationJson Json?
+  rootCauseJson     Json?
+  planJson          Json?
+  verdict           String?   // mirror of the terminal VerificationRun verdict
+  verificationRunId String?
+  diagnosisJson     Json?     // populated when a prior attempt failed
+  error             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  changes     RemediationChange[]
+  stageResults AIStageResult[]
+
+  @@index([caseId])
+  @@index([tenantId])
+  @@index([status])
+}
+
+// One proposed file/dependency change within an attempt. Records original and
+// patched hashes + a unified diff so the change is reviewable and reversible.
+// Applied only to the ephemeral workspace — never to the client's real repo.
+model RemediationChange {
+  id        String @id @default(cuid())
+  attemptId String
+  attempt   RemediationAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  filePath        String
+  changeType      String   // MODIFY | ADD | DELETE | DEP_UPGRADE
+  originalHash    String?
+  patchedHash     String?
+  originalContent String?
+  patchedContent  String?
+  diffPatch       String?
+  reason          String?
+  createdAt       DateTime @default(now())
+
+  @@index([attemptId])
+}
+
+// Immutable audit of each AI stage's structured output (investigator, root-cause,
+// planner, patcher, diagnoser) — evidence of the AI's reasoning, kept separate
+// from the deterministic verdict.
+model AIStageResult {
+  id        String @id @default(cuid())
+  attemptId String
+  attempt   RemediationAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  stage           String   // INVESTIGATOR | ROOT_CAUSE | PLANNER | PATCHER | DIAGNOSER
+  model           String
+  promptTokens    Int?
+  completionTokens Int?
+  structuredJson  Json?
+  error           String?
+  createdAt       DateTime @default(now())
+
+  @@index([attemptId])
 }
 
 model Notification {
