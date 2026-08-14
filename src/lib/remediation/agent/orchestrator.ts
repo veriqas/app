@@ -121,6 +121,11 @@ export async function runRemediation(caseId: string, tenantId: string, deps: Run
           diffPatch: v.diffPatch.slice(0, 40000), reason: v.reason ?? null,
         })),
       });
+      // Pre-patch full scan of the CLEAN workspace. This captures findings that
+      // already existed (elsewhere in the repo), so the after/before comparison
+      // never misattributes a pre-existing unrelated finding as newly introduced.
+      const preScan = await deps.env.executeScanner(ws, relevantSensors, tenantId);
+
       const applied: AppliedChange[] = validated.map(v => ({ filePath: v.filePath, changeType: v.changeType, newContent: v.newContent }));
       await deps.env.applyChanges(ws, applied);
 
@@ -142,7 +147,7 @@ export async function runRemediation(caseId: string, tenantId: string, deps: Run
         const v = calculateVerdict({ scanFailed: true, comparison: compareFindings(baseline, after.findings) });
         verdictState = v.state; evidence = { reason: v.reason, scannerResults: after.scannerResults };
       } else {
-        const comparison = compareFindings(baseline, after.findings);
+        const comparison = compareFindings(baseline, after.findings, preScan.findings);
         const v = calculateVerdict({ comparison, buildStatus, testStatus });
         verdictState = v.state; evidence = { reason: v.reason, summary: comparison.summary, buildStatus, testStatus, scannerResults: after.scannerResults };
       }

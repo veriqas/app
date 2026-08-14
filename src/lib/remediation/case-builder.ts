@@ -55,7 +55,11 @@ export async function buildRemediationCases(tenantId: string): Promise<BuildResu
     confidence: o.confidence,
   }));
 
-  const groups = correlateObservations(correlatable);
+  // minGroupSize:1 — every keyable finding becomes a remediation case. Correlation
+  // still MERGES corroborating findings (same repo+file+algorithm+purpose from
+  // multiple scanners) into one case; a lone finding forms a single-evidence case
+  // so it is still actionable. (The pure correlateObservations default stays 2.)
+  const groups = correlateObservations(correlatable, { minGroupSize: 1 });
 
   let casesCreated = 0;
   let casesUpdated = 0;

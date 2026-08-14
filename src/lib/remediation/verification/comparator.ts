@@ -34,11 +34,25 @@ function isHigh(sev?: string | null): boolean {
   return HIGH_SEVERITIES.has((sev ?? "").trim().toUpperCase());
 }
 
-export function compareFindings(before: ComparableFinding[], after: ComparableFinding[]): ComparisonResult {
+/**
+ * Compare baseline (the case's findings) against a post-remediation re-scan.
+ *
+ * `preExisting` (optional) is a full pre-patch scan of the repository. When
+ * provided, a finding is only counted as NEW if it was absent from BOTH the
+ * baseline and the pre-existing scan — so unrelated findings that already
+ * existed elsewhere in the repo (e.g. an RSA finding in another file while
+ * remediating an MD5 finding) are never misattributed to this remediation.
+ */
+export function compareFindings(
+  before: ComparableFinding[],
+  after: ComparableFinding[],
+  preExisting: ComparableFinding[] = [],
+): ComparisonResult {
   const afterByFp = new Map(after.map(a => [fp(a), a]));
   const afterIssueClasses = new Set(after.map(issueClassKey));
   const beforeByFp = new Map(before.map(b => [fp(b), b]));
   const beforeIssueClasses = new Set(before.map(issueClassKey));
+  const preExistingByFp = new Set(preExisting.map(fp));
 
   const resolved: ComparableFinding[] = [];
   const residual: ComparableFinding[] = [];
@@ -60,6 +74,7 @@ export function compareFindings(before: ComparableFinding[], after: ComparableFi
   const newFindings: ComparableFinding[] = [];
   for (const a of after) {
     if (beforeByFp.has(fp(a))) continue;                 // residual (counted from before)
+    if (preExistingByFp.has(fp(a))) continue;            // already existed pre-patch → not introduced by this remediation
     if (movedIssueClasses.has(issueClassKey(a))) continue; // relocation of a baseline issue
     if (beforeIssueClasses.has(issueClassKey(a)) && !afterByFp.has(fp(a))) {
       // Same class as a baseline finding but different fingerprint and the
