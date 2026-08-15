@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
+import { reapStaleV1Jobs } from "@/lib/remediation/v1-job-watchdog";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,9 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
+
+  // Reliability: self-heal a stale RUNNING job (dead worker) to FAILED on read.
+  await reapStaleV1Jobs(ctx.tenantId).catch(() => {});
 
   const rows = await db.$queryRawUnsafe<Record<string, unknown>[]>(`
     SELECT rj.*, u.name as "requestedByName"

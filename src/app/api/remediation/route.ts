@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
+import { reapStaleV1Jobs } from "@/lib/remediation/v1-job-watchdog";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Reliability: recover any RUNNING job whose deadline elapsed (dead worker)
+  // to FAILED before listing. Never affects terminal/successful jobs.
+  await reapStaleV1Jobs(ctx.tenantId).catch(() => {});
 
   const { searchParams } = new URL(req.url);
   const observationId = searchParams.get("observationId");
