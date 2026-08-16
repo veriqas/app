@@ -19,6 +19,7 @@ import { runTestssl,  isTestsslAvailable  } from "./engines/testssl-engine";
 import { runNmap,     isNmapAvailable     } from "./engines/nmap-engine";
 import { runCryptoscan                    } from "./engines/cryptoscan-engine";
 import { runCryptoscanAst, isCryptoscanAstAvailable } from "./engines/cryptoscan-ast-engine";
+import { runCryptoscanAstPy, isCryptoscanAstPyAvailable } from "./engines/cryptoscan-ast-py-engine";
 import { runCryptodeps                    } from "./engines/cryptodeps-engine";
 import { runSemgrep,  isSemgrepAvailable  } from "./engines/semgrep-engine";
 import { runCbomkit,  isCbomkitAvailable  } from "./engines/cbomkit-engine";
@@ -219,6 +220,29 @@ const definitions: EngineDefinition[] = [
     run: async (targets, opts) => {
       const repoUrl = targets.find(t => t.startsWith("http")) ?? targets[0];
       return runCryptoscanAst(opts?.clonedDir ?? "", repoUrl);
+    },
+  },
+  {
+    // AST-aware Python source-code crypto scanner. Parsing is delegated to
+    // Python's own `ast` module; classification is shared with the TS/JS engine
+    // so an algorithm has one canonical name across languages.
+    sensorType:    "CRYPTOSCAN_AST_PY",
+    requiredBinary: "python3",
+    requiredRuntime: "python3",
+    platformSupport: ["linux", "mac", "windows"],
+    dockerSupported: true,
+    installInstructions: {
+      docker: "Bundled in the VERIQAS scanner suite — no separate install needed.",
+      linux:  "Requires python3 (>= 3.8) on PATH.",
+      mac:    "Requires python3 (>= 3.8) on PATH.",
+    },
+    requiresClone:  true,
+    requiresAgent:  false,
+    isAvailable:    isCryptoscanAstPyAvailable,
+    getVersion:     async () => "1.0.0",
+    run: async (targets, opts) => {
+      const repoUrl = targets.find(t => t.startsWith("http")) ?? targets[0];
+      return runCryptoscanAstPy(opts?.clonedDir ?? "", repoUrl);
     },
   },
   {
