@@ -103,12 +103,17 @@ export function classifySignAlg(raw: string): AlgoInfo | null {
   if (n.includes("rsa")) return { algorithm: "RSA-SHA", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "digital signature" };
   if (n.includes("ecdsa") || n.includes("ec-")) return { algorithm: "ECDSA-P256", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "digital signature" };
   if (n.includes("ed25519")) return { algorithm: "Ed25519", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "digital signature" };
+  // Java spells DSA signatures "SHA1withDSA"/"SHA256withDSA".
+  if (n.includes("dsa")) return { algorithm: "DSA-2048", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "digital signature" };
   return null;
 }
 export function classifyCipher(raw: string): AlgoInfo | null {
   const n = raw.toLowerCase();
   if (n.includes("aes")) return { algorithm: "AES", primitive: "SYMMETRIC_ENCRYPTION", quantum_risk: "PARTIAL", purpose: "symmetric encryption" };
-  if (n.includes("3des") || n.includes("des-ede") || n.includes("tripledes")) return { algorithm: "3DES", primitive: "SYMMETRIC_ENCRYPTION", quantum_risk: "VULNERABLE", purpose: "symmetric encryption" };
+  // Triple DES must be matched before single DES, and Java spells it "DESede".
+  // Reporting DESede as DES would understate a 168-bit cipher as a 56-bit one.
+  if (n.includes("3des") || n.includes("des-ede") || n.includes("desede") || n.includes("tripledes"))
+    return { algorithm: "3DES", primitive: "SYMMETRIC_ENCRYPTION", quantum_risk: "VULNERABLE", purpose: "symmetric encryption" };
   if (n.includes("des")) return { algorithm: "DES", primitive: "SYMMETRIC_ENCRYPTION", quantum_risk: "VULNERABLE", purpose: "symmetric encryption" };
   if (n.includes("rc4")) return { algorithm: "RC4", primitive: "STREAM_CIPHER", quantum_risk: "VULNERABLE", purpose: "stream cipher" };
   if (n.includes("rc2")) return { algorithm: "RC2", primitive: "SYMMETRIC_ENCRYPTION", quantum_risk: "VULNERABLE", purpose: "symmetric encryption" };

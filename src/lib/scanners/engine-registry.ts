@@ -20,6 +20,7 @@ import { runNmap,     isNmapAvailable     } from "./engines/nmap-engine";
 import { runCryptoscan                    } from "./engines/cryptoscan-engine";
 import { runCryptoscanAst, isCryptoscanAstAvailable } from "./engines/cryptoscan-ast-engine";
 import { runCryptoscanAstPy, isCryptoscanAstPyAvailable } from "./engines/cryptoscan-ast-py-engine";
+import { runCryptoscanAstJava, isCryptoscanAstJavaAvailable } from "./engines/cryptoscan-ast-java-engine";
 import { runCryptodeps                    } from "./engines/cryptodeps-engine";
 import { runSemgrep,  isSemgrepAvailable  } from "./engines/semgrep-engine";
 import { runCbomkit,  isCbomkitAvailable  } from "./engines/cbomkit-engine";
@@ -243,6 +244,29 @@ const definitions: EngineDefinition[] = [
     run: async (targets, opts) => {
       const repoUrl = targets.find(t => t.startsWith("http")) ?? targets[0];
       return runCryptoscanAstPy(opts?.clonedDir ?? "", repoUrl);
+    },
+  },
+  {
+    // AST-aware Java source-code crypto scanner. Parsing is delegated to the
+    // JDK's own compiler front-end; classification is shared with the other AST
+    // engines so an algorithm has one canonical name across languages.
+    sensorType:    "CRYPTOSCAN_AST_JAVA",
+    requiredBinary: "java",
+    requiredRuntime: "java",
+    platformSupport: ["linux", "mac", "windows"],
+    dockerSupported: true,
+    installInstructions: {
+      docker: "Bundled in the VERIQAS scanner suite — no separate install needed.",
+      linux:  "Requires a Java 11+ runtime on PATH.",
+      mac:    "Requires a Java 11+ runtime on PATH.",
+    },
+    requiresClone:  true,
+    requiresAgent:  false,
+    isAvailable:    isCryptoscanAstJavaAvailable,
+    getVersion:     async () => "1.0.0",
+    run: async (targets, opts) => {
+      const repoUrl = targets.find(t => t.startsWith("http")) ?? targets[0];
+      return runCryptoscanAstJava(opts?.clonedDir ?? "", repoUrl);
     },
   },
   {
