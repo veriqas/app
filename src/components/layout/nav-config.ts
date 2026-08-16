@@ -22,6 +22,7 @@ import {
   Globe,
   ScanSearch,
   Activity,
+  Wrench,
 } from "lucide-react";
 
 export interface NavItem {
@@ -74,6 +75,7 @@ export const navSections: NavSection[] = [
     label: "Governance",
     items: [
       { label: "Actions", href: "/actions", icon: AlertOctagon },
+      { label: "Remediation Center", href: "/remediation", icon: Wrench },
       { label: "Programmes", href: "/programmes", icon: TrendingUp },
       { label: "Evidence", href: "/evidence", icon: FileText },
     ],
