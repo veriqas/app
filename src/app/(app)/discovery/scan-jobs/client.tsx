@@ -19,7 +19,57 @@ type Job = {
   createdAt: string;
   sensor: { name: string; sensorType: string };
   _count: { results: number };
+  scanStats: ScanStats | null;
 };
+
+/** Coverage metrics reported by the engine. Null means "not reported". */
+type ScanStats = {
+  files_discovered?: number;
+  files_parsed?: number;
+  files_skipped?: number;
+  findings_before_caps?: number;
+  truncated_files?: number;
+  truncated_total?: boolean;
+  complete?: boolean;
+  caps?: { per_file?: number; total?: number };
+};
+
+/**
+ * Coverage badge. Only shown when the engine actually reported coverage — an
+ * unreported scan must never be presented as complete.
+ */
+function CoverageBadge({ stats }: { stats: ScanStats | null }) {
+  if (!stats || stats.complete === undefined) return null;
+
+  if (stats.complete) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold"
+        style={{ color: "#16A34A", background: "rgba(22,163,74,0.10)" }}
+        title={`Full coverage — ${stats.files_parsed ?? 0} of ${stats.files_discovered ?? 0} files parsed, nothing skipped or truncated.`}
+      >
+        Full coverage
+      </span>
+    );
+  }
+
+  const reasons: string[] = [];
+  if (stats.files_skipped) reasons.push(`${stats.files_skipped} file(s) skipped`);
+  if (stats.truncated_files) reasons.push(`${stats.truncated_files} file(s) hit the ${stats.caps?.per_file ?? "per-file"} finding cap`);
+  if (stats.truncated_total) reasons.push(`global cap of ${stats.caps?.total ?? "?"} findings reached`);
+  if (stats.findings_before_caps !== undefined) reasons.push(`${stats.findings_before_caps} detections found before caps`);
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold"
+      style={{ color: "#B45309", background: "rgba(217,119,6,0.12)" }}
+      title={`Incomplete scan — reported inventory is a subset of what exists. ${reasons.join("; ")}.`}
+    >
+      <AlertTriangle className="h-2.5 w-2.5" />
+      Incomplete scan
+    </span>
+  );
+}
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
   PENDING:   <Clock className="h-4 w-4 text-slate-400" />,
@@ -322,6 +372,7 @@ export function ScanJobsClient({
       updatedAt: new Date().toISOString(),
       sensor: { name: "Scanner", sensorType: "" },
       _count: { results: 0 },
+      scanStats: null,
     } as unknown as Job;
     setJobs((prev) => [stub, ...prev]);
   }
@@ -404,6 +455,11 @@ export function ScanJobsClient({
                       </p>
                       {job.errorMessage && (
                         <p className="mt-0.5 truncate text-[10px] text-red-500">{job.errorMessage}</p>
+                      )}
+                      {job.status === "COMPLETED" && (
+                        <div className="mt-1">
+                          <CoverageBadge stats={job.scanStats} />
+                        </div>
                       )}
                     </div>
 

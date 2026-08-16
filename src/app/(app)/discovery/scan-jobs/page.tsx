@@ -43,6 +43,8 @@ export default async function ScanJobsPage() {
     completedAt: j.completedAt?.toISOString() ?? null,
     createdAt: j.createdAt.toISOString(),
     updatedAt: j.updatedAt.toISOString(),
+    // Prisma returns JsonValue; the client narrows it to its ScanStats shape.
+    scanStats: (j.scanStats ?? null) as Parameters<typeof ScanJobsClient>[0]["jobs"][number]["scanStats"],
   }));
 
   // Check availability for every scanner so the UI can show which ones are ready.

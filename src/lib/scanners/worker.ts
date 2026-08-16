@@ -70,12 +70,20 @@ export async function executeScanJob(jobId: string): Promise<WorkerResult> {
     const durationMs = Date.now() - start;
     console.log(`[worker] scan ${job.ref} complete - obs: ${written} written, ${skipped} skipped | risks: ${risks.created} created | score: ${newScore ?? "err"}`);
 
+    // Coverage metrics, when the engine reports them. Generic: any engine whose
+    // output carries `scan_stats` is persisted, with no scanner-specific branching.
+    const scanStats = rawItems.find(
+      (item): item is { scan_stats: unknown } =>
+        !!item && typeof item === "object" && "scan_stats" in item && !!(item as { scan_stats?: unknown }).scan_stats,
+    )?.scan_stats;
+
     await db.scanJob.update({
       where: { id: jobId },
       data: {
         status: "COMPLETED",
         completedAt: new Date(),
         resultCount: written + skipped,
+        ...(scanStats ? { scanStats: scanStats as object } : {}),
       },
     });
 

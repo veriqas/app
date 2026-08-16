@@ -25,17 +25,73 @@ import * as fs from "fs";
 import * as path from "path";
 import ts from "typescript";
 import { walkFiles } from "./git-clone";
-import type { CryptoScanOutput, CryptoScanFinding } from "@/lib/sensors/adapters/cryptoscan.adapter";
+import type { CryptoScanOutput, CryptoScanFinding, CryptoScanStats } from "@/lib/sensors/adapters/cryptoscan.adapter";
 
 const JS_TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 const MAX_PER_FILE = 20;
 const MAX_TOTAL = 500;
 
-type Risk = "VULNERABLE" | "PARTIAL" | "SAFE" | "UNKNOWN";
+type Risk = "VULNERABLE" | "PARTIAL" | "HYBRID" | "SAFE" | "UNKNOWN";
 interface AlgoInfo { algorithm: string; primitive: string; quantum_risk: Risk; purpose?: string; }
+
+// ── Post-quantum algorithm classification ─────────────────────────────────────
+// Code that has ALREADY migrated must be reported as post-quantum, not
+// "unknown" — otherwise a client mid-migration sees false alarms on the very
+// code they just fixed. Canonical names match the algorithm registry.
+function classifyPqc(raw: string): AlgoInfo | null {
+  const n = raw.toLowerCase().replace(/[-_\s]/g, "");
+
+  // Hybrid key establishment (classical + PQ). Reported as HYBRID, not SAFE.
+  if (n.includes("x25519") && (n.includes("mlkem768") || n.includes("kyber768")))
+    return { algorithm: "X25519-MLKEM768", primitive: "KEY_ESTABLISHMENT", quantum_risk: "HYBRID", purpose: "hybrid key establishment" };
+  if ((n.includes("p256") || n.includes("secp256r1")) && (n.includes("mlkem768") || n.includes("kyber768")))
+    return { algorithm: "P256-MLKEM768", primitive: "KEY_ESTABLISHMENT", quantum_risk: "HYBRID", purpose: "hybrid key establishment" };
+
+  // ML-KEM (FIPS 203) and its CRYSTALS-Kyber predecessor.
+  if (n.includes("mlkem") || n.includes("kyber")) {
+    const kyber = n.includes("kyber") && !n.includes("mlkem");
+    if (n.includes("1024")) return { algorithm: kyber ? "CRYSTALS-Kyber-1024" : "ML-KEM-1024", primitive: "KEY_ESTABLISHMENT", quantum_risk: "SAFE", purpose: "post-quantum key encapsulation" };
+    if (n.includes("512"))  return { algorithm: kyber ? "CRYSTALS-Kyber-512"  : "ML-KEM-512",  primitive: "KEY_ESTABLISHMENT", quantum_risk: "SAFE", purpose: "post-quantum key encapsulation" };
+    return { algorithm: kyber ? "CRYSTALS-Kyber-768" : "ML-KEM-768", primitive: "KEY_ESTABLISHMENT", quantum_risk: "SAFE", purpose: "post-quantum key encapsulation" };
+  }
+
+  // ML-DSA (FIPS 204) and its CRYSTALS-Dilithium predecessor.
+  if (n.includes("mldsa") || n.includes("dilithium")) {
+    const sig = (algorithm: string): AlgoInfo => ({ algorithm, primitive: "DIGITAL_SIGNATURE", quantum_risk: "SAFE", purpose: "post-quantum signature" });
+    // Dilithium is numbered 2/3/5; ML-DSA is numbered 44/65/87. Match the full
+    // parameter number, never a substring of it (`mldsa65` must not match "5").
+    if (n.includes("dilithium") && !n.includes("mldsa")) {
+      if (/dilithium5/.test(n)) return sig("CRYSTALS-Dilithium5");
+      if (/dilithium2/.test(n)) return sig("CRYSTALS-Dilithium2");
+      return sig("CRYSTALS-Dilithium3");
+    }
+    if (n.includes("87")) return sig("ML-DSA-87");
+    if (n.includes("44")) return sig("ML-DSA-44");
+    return sig("ML-DSA-65");
+  }
+
+  // SLH-DSA (FIPS 205) / SPHINCS+.
+  if (n.includes("slhdsa") || n.includes("sphincs")) {
+    if (n.includes("slhdsa")) {
+      if (n.includes("256")) return { algorithm: "SLH-DSA-256s", primitive: "DIGITAL_SIGNATURE", quantum_risk: "SAFE", purpose: "post-quantum signature" };
+      if (n.includes("192")) return { algorithm: "SLH-DSA-192s", primitive: "DIGITAL_SIGNATURE", quantum_risk: "SAFE", purpose: "post-quantum signature" };
+      if (n.includes("128f")) return { algorithm: "SLH-DSA-128f", primitive: "DIGITAL_SIGNATURE", quantum_risk: "SAFE", purpose: "post-quantum signature" };
+      return { algorithm: "SLH-DSA-128s", primitive: "DIGITAL_SIGNATURE", quantum_risk: "SAFE", purpose: "post-quantum signature" };
+    }
+    return { algorithm: "SPHINCS+", primitive: "DIGITAL_SIGNATURE", quantum_risk: "SAFE", purpose: "post-quantum signature" };
+  }
+
+  // FALCON / FN-DSA.
+  if (n.includes("falcon") || n.includes("fndsa")) {
+    if (n.includes("1024")) return { algorithm: "FALCON-1024", primitive: "DIGITAL_SIGNATURE", quantum_risk: "SAFE", purpose: "post-quantum signature" };
+    return { algorithm: "FALCON-512", primitive: "DIGITAL_SIGNATURE", quantum_risk: "SAFE", purpose: "post-quantum signature" };
+  }
+  return null;
+}
 
 // ── Algorithm classification from a resolved algorithm string ──────────────────
 function classifyKeyType(raw: string): AlgoInfo | null {
+  const pq = classifyPqc(raw); if (pq) return pq;
   const n = raw.toLowerCase();
   if (n === "rsa" || n.startsWith("rsa")) return { algorithm: "RSA-2048", primitive: "KEY_ESTABLISHMENT", quantum_risk: "VULNERABLE", purpose: "RSA key generation" };
   if (n === "ec" || n === "ecdsa") return { algorithm: "ECDSA-P256", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "EC key generation" };
@@ -63,6 +119,7 @@ function classifyHash(raw: string): AlgoInfo | null {
   return null;
 }
 function classifySignAlg(raw: string): AlgoInfo | null {
+  const pq = classifyPqc(raw); if (pq) return pq;
   const n = raw.toLowerCase();
   if (n.includes("rsa")) return { algorithm: "RSA-SHA", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "digital signature" };
   if (n.includes("ecdsa") || n.includes("ec-")) return { algorithm: "ECDSA-P256", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "digital signature" };
@@ -90,6 +147,7 @@ function classifyKdf(raw: string): AlgoInfo | null {
   return null;
 }
 function classifyJwtAlg(raw: string): AlgoInfo | null {
+  const pq = classifyPqc(raw); if (pq) return pq;
   const n = raw.toUpperCase();
   if (/^RS(256|384|512)$/.test(n) || /^PS(256|384|512)$/.test(n)) return { algorithm: "RSA-SHA", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "JWT RSA signature" };
   if (/^ES(256|384|512)$/.test(n)) return { algorithm: "ECDSA-P256", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "JWT ECDSA signature" };
@@ -119,6 +177,7 @@ function classifyCurve(raw: string): AlgoInfo | null {
 }
 // WebCrypto algorithm `name` → identity (SubtleCrypto).
 function classifyWebCryptoName(raw: string): AlgoInfo | null {
+  const pq = classifyPqc(raw); if (pq) return pq;
   const n = raw.toUpperCase();
   if (n === "RSASSA-PKCS1-V1_5") return { algorithm: "RSA-SHA", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "WebCrypto RSA signature" };
   if (n === "RSA-PSS") return { algorithm: "RSA-PSS", primitive: "DIGITAL_SIGNATURE", quantum_risk: "VULNERABLE", purpose: "WebCrypto RSA-PSS signature" };
@@ -152,7 +211,10 @@ function classifyCryptoJs(token: string): AlgoInfo | null {
   return classifyHash(n);
 }
 
-function analyzeFile(sourceText: string, relPath: string, out: CryptoScanFinding[]): void {
+/** Per-file outcome, so the caller can report true scan coverage. */
+interface FileOutcome { detections: number; truncated: boolean }
+
+function analyzeFile(sourceText: string, relPath: string, out: CryptoScanFinding[], outcome?: FileOutcome): void {
   const sf = ts.createSourceFile(relPath, sourceText, ts.ScriptTarget.Latest, true, relPath.endsWith(".tsx") || relPath.endsWith(".jsx") ? ts.ScriptKind.TSX : undefined);
 
   // Unwrap `x as T`, `<T>x`, and `(x)` so casts/parens don't hide the real node.
@@ -246,7 +308,11 @@ function analyzeFile(sourceText: string, relPath: string, out: CryptoScanFinding
 
   let fileCount = 0;
   const push = (info: AlgoInfo, node: ts.Node, contextArg?: string) => {
-    if (fileCount >= MAX_PER_FILE || out.length >= MAX_TOTAL) return;
+    if (outcome) outcome.detections++;
+    if (fileCount >= MAX_PER_FILE || out.length >= MAX_TOTAL) {
+      if (outcome) outcome.truncated = true;
+      return;
+    }
     const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
     out.push({
       pattern_id: `SENQOR-AST-${info.algorithm.replace(/[^A-Z0-9]/g, "-")}`,
@@ -282,6 +348,18 @@ function analyzeFile(sourceText: string, relPath: string, out: CryptoScanFinding
     if (p.length === 0) return false;
     const args = node.arguments;
     const last = p[p.length - 1];
+
+    // Post-quantum libraries. @noble/post-quantum exposes algorithm-named
+    // objects (ml_kem768.keygen(), ml_dsa65.sign()); liboqs uses a constructor
+    // with the algorithm as a string argument.
+    for (const seg of p) {
+      const pq = classifyPqc(seg);
+      if (pq) { push(pq, node, seg); return true; }
+    }
+    if (["KeyEncapsulation", "Signature"].includes(p[0] ?? "") || last === "KeyEncapsulation") {
+      const s = resolveString(args[0]);
+      if (s) { const pq = classifyPqc(s); if (pq) { push(pq, node, s); return true; } }
+    }
 
     // WebCrypto / SubtleCrypto: crypto.subtle.<op>(...)
     if (p.includes("subtle")) {
@@ -344,7 +422,12 @@ function analyzeFile(sourceText: string, relPath: string, out: CryptoScanFinding
     // elliptic: new EC('secp256k1'), new EdDSA('ed25519')
     if (ts.isNewExpression(node) && node.expression && ts.isIdentifier(node.expression)) {
       const ctor = node.expression.text;
-      if (ctor === "EC" || ctor === "ec") {
+      // PQC constructors: new MlKem768(), new KeyEncapsulation('Kyber768')
+      const ctorPq = classifyPqc(ctor);
+      const argPq = classifyPqc(resolveString(node.arguments?.[0]) ?? "");
+      if (ctorPq) push(ctorPq, node, ctor);
+      else if (argPq && ["KeyEncapsulation", "Signature"].includes(ctor)) push(argPq, node, ctor);
+      else if (ctor === "EC" || ctor === "ec") {
         const s = resolveString(node.arguments?.[0]);
         if (s) { const info = classifyCurve(s); if (info) push(info, node, s); }
       } else if (ctor === "EdDSA") {
@@ -420,12 +503,55 @@ export async function isCryptoscanAstAvailable(): Promise<boolean> {
 
 export async function runCryptoscanAst(repoDir: string, _repoUrl: string): Promise<CryptoScanOutput> {
   const findings: CryptoScanFinding[] = [];
+  let discovered = 0, parsed = 0, skipped = 0, detections = 0, truncatedFiles = 0;
+  let truncatedTotal = false;
+
   for (const filePath of walkFiles(repoDir, JS_TS_EXTENSIONS)) {
-    if (findings.length >= MAX_TOTAL) break;
+    discovered++;
+    // Keep counting discovered files after the global cap so the report states
+    // how much of the repository was never examined.
+    if (findings.length >= MAX_TOTAL) { truncatedTotal = true; skipped++; continue; }
+
     let content: string;
-    try { content = fs.readFileSync(filePath, "utf-8"); } catch { continue; }
+    try { content = fs.readFileSync(filePath, "utf-8"); } catch { skipped++; continue; }
     const relPath = path.relative(repoDir, filePath).replace(/\\/g, "/");
-    try { analyzeFile(content, relPath, findings); } catch { /* skip unparseable file */ }
+
+    const outcome: FileOutcome = { detections: 0, truncated: false };
+    try {
+      analyzeFile(content, relPath, findings, outcome);
+      parsed++;
+      detections += outcome.detections;
+      if (outcome.truncated) truncatedFiles++;
+    } catch {
+      skipped++; // unreadable or unparseable
+    }
   }
-  return { tool: { name: "senqor-cryptoscan-ast", version: "1.1.0" }, findings, scan_timestamp: new Date().toISOString() };
+
+  const stats: CryptoScanStats = {
+    files_discovered: discovered,
+    files_parsed: parsed,
+    files_skipped: skipped,
+    findings_before_caps: detections,
+    truncated_files: truncatedFiles,
+    truncated_total: truncatedTotal,
+    complete: skipped === 0 && truncatedFiles === 0 && !truncatedTotal,
+    caps: { per_file: MAX_PER_FILE, total: MAX_TOTAL },
+  };
+
+  if (!stats.complete) {
+    // Surfaced in worker logs: an incomplete scan must never look like a clean one.
+    console.warn(
+      `[cryptoscan-ast] INCOMPLETE SCAN — ${parsed}/${discovered} files parsed, ` +
+      `${skipped} skipped, ${truncatedFiles} file(s) hit the ${MAX_PER_FILE}-finding cap` +
+      (truncatedTotal ? `, global cap of ${MAX_TOTAL} reached (${detections} detections found)` : "") +
+      ". Reported inventory is a subset of what exists.",
+    );
+  }
+
+  return {
+    tool: { name: "senqor-cryptoscan-ast", version: "1.2.0" },
+    findings,
+    scan_timestamp: new Date().toISOString(),
+    scan_stats: stats,
+  };
 }

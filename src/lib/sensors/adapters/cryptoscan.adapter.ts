@@ -29,10 +29,28 @@ export interface CryptoScanFinding {
   remediation?: string;
 }
 
+/**
+ * Scan coverage metrics. Optional and ignored by normalisation — present so a
+ * scan can report what it actually covered. Without it a truncated or partially
+ * unreadable scan looks identical to a clean one, which is a blind spot the
+ * operator cannot see.
+ */
+export interface CryptoScanStats {
+  files_discovered: number;
+  files_parsed: number;
+  files_skipped: number;        // unreadable or unparseable
+  findings_before_caps: number; // total detections before caps were applied
+  truncated_files: number;      // files that hit the per-file cap
+  truncated_total: boolean;     // whole scan hit the global cap
+  complete: boolean;            // false when anything was skipped or truncated
+  caps: { per_file: number; total: number };
+}
+
 export interface CryptoScanOutput {
   tool?: { name: string; version?: string };
   findings: CryptoScanFinding[];
   scan_timestamp?: string;
+  scan_stats?: CryptoScanStats;
 }
 
 // ── SARIF output shape (partial — only what we need) ──────────────────────────

@@ -565,6 +565,10 @@ model ScanJob {
   resultCount   Int?
   errorMessage  String?
   rawResultPath String?
+  // Coverage metrics reported by the engine (files parsed/skipped, caps hit).
+  // Nullable: engines that do not report coverage simply leave it unset, and a
+  // null value means "not reported", never "complete".
+  scanStats     Json?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

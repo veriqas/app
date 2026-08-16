@@ -215,7 +215,7 @@ const definitions: EngineDefinition[] = [
     requiresClone:  true,
     requiresAgent:  false,
     isAvailable:    isCryptoscanAstAvailable,
-    getVersion:     async () => "1.1.0",
+    getVersion:     async () => "1.2.0",
     run: async (targets, opts) => {
       const repoUrl = targets.find(t => t.startsWith("http")) ?? targets[0];
       return runCryptoscanAst(opts?.clonedDir ?? "", repoUrl);

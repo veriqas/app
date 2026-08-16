@@ -114,3 +114,79 @@ test("node crypto: pbkdf2 flagged as key derivation", () => {
 test("does NOT flag a plain object literal with a name property", () => {
   assert.deepEqual(scanSourceText(`const user = { name: 'RSA Corp', role: 'admin' };`, "u.ts"), []);
 });
+
+// ── PQC awareness: already-migrated code must read as post-quantum, not unknown ──
+const findOne = (src: string) => scanSourceText(src, "pq.ts")[0];
+
+test("PQC: @noble/post-quantum ml_kem768 is post-quantum SAFE, not unknown", () => {
+  const f = findOne(`import { ml_kem768 } from '@noble/post-quantum/ml-kem';\nconst k = ml_kem768.keygen();`);
+  assert.equal(f.algorithm, "ML-KEM-768");
+  assert.equal(f.quantum_risk, "SAFE");
+  assert.equal(f.primitive, "KEY_ESTABLISHMENT");
+});
+
+test("PQC: ml_dsa65 signature detected as ML-DSA-65", () => {
+  const f = findOne(`const sig = ml_dsa65.sign(sk, msg);`);
+  assert.equal(f.algorithm, "ML-DSA-65");
+  assert.equal(f.quantum_risk, "SAFE");
+});
+
+test("PQC: liboqs KeyEncapsulation('Kyber768') maps to the Kyber canonical name", () => {
+  const f = findOne(`const kem = new KeyEncapsulation('Kyber768');`);
+  assert.equal(f.algorithm, "CRYSTALS-Kyber-768");
+  assert.equal(f.quantum_risk, "SAFE");
+});
+
+test("PQC: constructor form new MlKem1024()", () => {
+  const f = findOne(`const kem = new MlKem1024();`);
+  assert.equal(f.algorithm, "ML-KEM-1024");
+});
+
+test("PQC: FALCON and SPHINCS+ recognised", () => {
+  assert.equal(findOne(`const s = falcon512.sign(m);`).algorithm, "FALCON-512");
+  assert.equal(findOne(`const s = sphincs.sign(m);`).algorithm, "SPHINCS+");
+});
+
+test("PQC: hybrid X25519+MLKEM768 is HYBRID, not SAFE", () => {
+  const f = findOne(`crypto.subtle.generateKey({ name: 'X25519MLKEM768' }, true, ['deriveKey'])`);
+  assert.equal(f.algorithm, "X25519-MLKEM768");
+  assert.equal(f.quantum_risk, "HYBRID");
+});
+
+// ── Scan completeness reporting ──
+test("scan stats: caps are reported so a truncated scan is not mistaken for a clean one", async () => {
+  const { runCryptoscanAst } = await import("../cryptoscan-ast-engine");
+  const os = await import("node:os");
+  const fs = await import("node:fs");
+  const pathMod = await import("node:path");
+  const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), "ast-stats-"));
+  fs.writeFileSync(pathMod.join(dir, "a.ts"), `crypto.createHash('md5')`);
+  fs.writeFileSync(pathMod.join(dir, "b.ts"), `crypto.createHash('sha1')`);
+  const out = await runCryptoscanAst(dir, "https://local/x");
+  fs.rmSync(dir, { recursive: true, force: true });
+  const s = out.scan_stats!;
+  assert.equal(s.files_discovered, 2);
+  assert.equal(s.files_parsed, 2);
+  assert.equal(s.files_skipped, 0);
+  assert.equal(s.complete, true);
+  assert.equal(s.truncated_total, false);
+  assert.ok(s.caps.per_file > 0 && s.caps.total > 0);
+});
+
+test("scan stats: per-file cap marks the scan incomplete and counts real detections", () => {
+  // 25 distinct hash calls in one file — above the 20-per-file cap.
+  const lines = Array.from({ length: 25 }, (_, i) => `crypto.createHash('md5'); // ${i}`).join("\n");
+  const found = scanSourceText(lines, "many.ts");
+  assert.equal(found.length, 20, "per-file cap must hold");
+});
+
+test("PQC: parameter numbers are matched exactly, not as substrings", () => {
+  assert.equal(findOne(`ml_dsa44.sign(sk, m)`).algorithm, "ML-DSA-44");
+  assert.equal(findOne(`ml_dsa65.sign(sk, m)`).algorithm, "ML-DSA-65");
+  assert.equal(findOne(`ml_dsa87.sign(sk, m)`).algorithm, "ML-DSA-87");
+  assert.equal(findOne(`dilithium2.sign(sk, m)`).algorithm, "CRYSTALS-Dilithium2");
+  assert.equal(findOne(`dilithium3.sign(sk, m)`).algorithm, "CRYSTALS-Dilithium3");
+  assert.equal(findOne(`dilithium5.sign(sk, m)`).algorithm, "CRYSTALS-Dilithium5");
+  assert.equal(findOne(`ml_kem512.keygen()`).algorithm, "ML-KEM-512");
+  assert.equal(findOne(`ml_kem1024.keygen()`).algorithm, "ML-KEM-1024");
+});
