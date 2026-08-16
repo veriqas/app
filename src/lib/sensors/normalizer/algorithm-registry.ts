@@ -126,6 +126,14 @@ const ALGORITHMS: CanonicalAlgorithm[] = [
   { name: "scrypt", family: "scrypt", primitiveType: "PASSWORD_HASHING", quantumClass: "QUANTUM_RESILIENT" },
   { name: "bcrypt", family: "bcrypt", primitiveType: "PASSWORD_HASHING", quantumClass: "QUANTUM_RESILIENT" },
   { name: "Argon2", family: "Argon2", primitiveType: "PASSWORD_HASHING", quantumClass: "QUANTUM_RESILIENT" },
+
+  // Legacy / less-common primitives reported by source-code scanners. Additive:
+  // these raw strings previously resolved to nothing (no primitiveType at all).
+  { name: "DSA-2048", family: "DSA", primitiveType: "DIGITAL_SIGNATURE", quantumClass: "QUANTUM_VULNERABLE", keySize: 2048, supersededBy: "ML-DSA-65" },
+  { name: "MD4", family: "MD", primitiveType: "HASH", quantumClass: "QUANTUM_VULNERABLE", supersededBy: "SHA-256" },
+  { name: "RIPEMD-160", family: "RIPEMD", primitiveType: "HASH", quantumClass: "QUANTUM_VULNERABLE", supersededBy: "SHA-256" },
+  { name: "XSalsa20-Poly1305", family: "Salsa", primitiveType: "SYMMETRIC_ENCRYPTION", quantumClass: "QUANTUM_REDUCED_SECURITY" },
+  { name: "Rabbit", family: "Rabbit", primitiveType: "SYMMETRIC_ENCRYPTION", quantumClass: "UNKNOWN" },
 ];
 
 // ── Lookup tables ──────────────────────────────────────────────────────────────
@@ -146,6 +154,13 @@ const RAW_ALIASES: Record<string, string> = {
   "rsa_oaep":        "RSA-2048",
   "rsassa-pkcs1-v1_5": "RSA-2048",
   "rsassa-pss":      "RSA-2048",
+  "rsa-oaep":        "RSA-2048",
+  "rsa-pss":         "RSA-2048",
+  "rsa-sha":         "RSA-2048",  // RSA signature, key size not stated by the scanner
+  "rsa-sha1":        "RSA-2048",
+  "rsa-sha256":      "RSA-2048",
+  "rsa-sha384":      "RSA-2048",
+  "rsa-sha512":      "RSA-2048",
 
   // ECDSA
   "ecdsa":           "ECDSA-P256",
@@ -262,6 +277,19 @@ const RAW_ALIASES: Record<string, string> = {
   "pbkdf2":          "PBKDF2",
   "scrypt":          "scrypt",
   "bcrypt":          "bcrypt",
+  // Legacy / less-common primitives (additive — previously unresolved)
+  "dsa":             "DSA-2048",
+  "dsa-2048":        "DSA-2048",
+  "md4":             "MD4",
+  "ripemd":          "RIPEMD-160",
+  "ripemd160":       "RIPEMD-160",
+  "ripemd-160":      "RIPEMD-160",
+  "xsalsa20-poly1305": "XSalsa20-Poly1305",
+  "xsalsa20":        "XSalsa20-Poly1305",
+  "rabbit":          "Rabbit",
+  "secp256k1":       "ECDSA-K256",
+  "x448":            "ECDH-X448",
+
   "argon2":          "Argon2",
   "argon2id":        "Argon2",
   "argon2d":         "Argon2",
