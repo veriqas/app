@@ -76,6 +76,8 @@ export const ADAPTER_REGISTRY: Map<string, SensorAdapter<unknown>> = new Map(
   [
     // Original adapters (unchanged)
     [cryptoScanAdapter.sensorType, cryptoScanAdapter as SensorAdapter<unknown>],
+    // AST source scanner reuses the CryptoScan adapter (identical output shape).
+    ["CRYPTOSCAN_AST", cryptoScanAdapter as SensorAdapter<unknown>],
     [cryptoDepsAdapter.sensorType, cryptoDepsAdapter as SensorAdapter<unknown>],
     [sslyzeAdapter.sensorType,     sslyzeAdapter     as SensorAdapter<unknown>],
     [sshAuditAdapter.sensorType,   sshAuditAdapter   as SensorAdapter<unknown>],

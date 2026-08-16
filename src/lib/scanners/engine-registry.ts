@@ -18,6 +18,7 @@ import { runZgrab2,   isZgrab2Available   } from "./engines/zgrab2-engine";
 import { runTestssl,  isTestsslAvailable  } from "./engines/testssl-engine";
 import { runNmap,     isNmapAvailable     } from "./engines/nmap-engine";
 import { runCryptoscan                    } from "./engines/cryptoscan-engine";
+import { runCryptoscanAst, isCryptoscanAstAvailable } from "./engines/cryptoscan-ast-engine";
 import { runCryptodeps                    } from "./engines/cryptodeps-engine";
 import { runSemgrep,  isSemgrepAvailable  } from "./engines/semgrep-engine";
 import { runCbomkit,  isCbomkitAvailable  } from "./engines/cbomkit-engine";
@@ -199,6 +200,25 @@ const definitions: EngineDefinition[] = [
     run: async (targets, opts) => {
       const repoUrl = targets.find(t => t.startsWith("http")) ?? targets[0];
       return runCryptoscan(opts?.clonedDir ?? "", repoUrl);
+    },
+  },
+  {
+    // AST-aware source-code crypto scanner (TS/JS). Emits the same CryptoScanOutput
+    // shape, so it reuses the CryptoScan adapter and flows through the pipeline.
+    sensorType:    "CRYPTOSCAN_AST",
+    requiredBinary: "cryptoscan-ast",
+    platformSupport: ["linux", "mac", "windows"],
+    dockerSupported: true,
+    installInstructions: {
+      docker: "Bundled in the VERIQAS scanner suite — no separate install needed.",
+    },
+    requiresClone:  true,
+    requiresAgent:  false,
+    isAvailable:    isCryptoscanAstAvailable,
+    getVersion:     async () => "1.0.0",
+    run: async (targets, opts) => {
+      const repoUrl = targets.find(t => t.startsWith("http")) ?? targets[0];
+      return runCryptoscanAst(opts?.clonedDir ?? "", repoUrl);
     },
   },
   {
