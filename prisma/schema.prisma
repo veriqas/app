@@ -624,6 +624,10 @@ model CryptoObservation {
 
   @@index([tenantId])
   @@index([cryptoAssetId])
+  // Supports the ingest dedup lookup, which runs once per observation. Without
+  // it the lookup degrades as the tenant's observation count grows, and a
+  // source-code scan of a large repository slows down super-linearly.
+  @@index([tenantId, sensorType, algorithm, filePath, lineNumber])
 }
 
 // ─── RISKS ───────────────────────────────────────────────────────────────────

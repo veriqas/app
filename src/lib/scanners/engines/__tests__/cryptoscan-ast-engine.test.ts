@@ -173,11 +173,21 @@ test("scan stats: caps are reported so a truncated scan is not mistaken for a cl
   assert.ok(s.caps.per_file > 0 && s.caps.total > 0);
 });
 
-test("scan stats: per-file cap marks the scan incomplete and counts real detections", () => {
-  // 25 distinct hash calls in one file — above the 20-per-file cap.
-  const lines = Array.from({ length: 25 }, (_, i) => `crypto.createHash('md5'); // ${i}`).join("\n");
-  const found = scanSourceText(lines, "many.ts");
-  assert.equal(found.length, 20, "per-file cap must hold");
+test("scan stats: the per-file cap is enforced at whatever value is configured", async () => {
+  // Derive the configured cap instead of hardcoding it, so tuning the cap does
+  // not silently break this guard.
+  const { runCryptoscanAst } = await import("../cryptoscan-ast-engine");
+  const os = await import("node:os");
+  const fs = await import("node:fs");
+  const pathMod = await import("node:path");
+  const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), "ast-cap-"));
+  fs.writeFileSync(pathMod.join(dir, "probe.ts"), `crypto.createHash('md5')`);
+  const cap = (await runCryptoscanAst(dir, "https://local/x")).scan_stats!.caps.per_file;
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  const lines = Array.from({ length: cap + 5 }, (_, i) => `crypto.createHash('md5'); // ${i}`).join("\n");
+  assert.equal(scanSourceText(lines, "many.ts").length, cap, "per-file cap must hold at the configured value");
+  assert.ok(cap >= 100, "cap must be high enough not to truncate a crypto-heavy file's inventory");
 });
 
 test("PQC: parameter numbers are matched exactly, not as substrings", () => {

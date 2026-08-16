@@ -31,9 +31,14 @@ import type { CryptoScanOutput, CryptoScanFinding, CryptoScanStats } from "@/lib
 
 const execFileAsync = promisify(execFile);
 
-const MAX_PER_FILE = 20;
-const MAX_TOTAL = 500;
-const SCAN_TIMEOUT_MS = 120_000;
+/**
+ * Caps bound memory on pathological inputs; they are not a sampling strategy.
+ * Set too low they silently cap the inventory. Shared defaults with the TS/JS
+ * engine so coverage does not differ by language.
+ */
+const MAX_PER_FILE = Number(process.env.CRYPTOSCAN_MAX_PER_FILE ?? 200);
+const MAX_TOTAL = Number(process.env.CRYPTOSCAN_MAX_TOTAL ?? 10_000);
+const SCAN_TIMEOUT_MS = Number(process.env.CRYPTOSCAN_TIMEOUT_MS ?? 300_000);
 
 /** One structured detection emitted by the Python extractor. */
 interface PyDetection {

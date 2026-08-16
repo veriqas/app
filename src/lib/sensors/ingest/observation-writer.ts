@@ -48,7 +48,14 @@ export async function writeObservations(
   for (const obs of observations) {
     try {
       // Dedup: skip if an identical observation from the same sensor+algorithm+location
-      // already exists within the last 24 hours
+      // already exists within the last 24 hours.
+      //
+      // lineNumber is part of the location. Without it, every occurrence of an
+      // algorithm after the first in a given file is discarded as a duplicate —
+      // but each call site is a distinct thing to remediate, so the inventory
+      // would under-report and remediation could not fix what it never saw.
+      // For network/package findings lineNumber is null, so their dedup
+      // behaviour is unchanged.
       const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const existing = await db.cryptoObservation.findFirst({
         where: {
@@ -57,6 +64,7 @@ export async function writeObservations(
           algorithm:   obs.algorithm ?? null,
           endpoint:    obs.endpoint    ?? null,
           filePath:    obs.filePath    ?? null,
+          lineNumber:  obs.lineNumber  ?? null,
           packageName: obs.packageName ?? null,
           observedAt:  { gte: cutoff },
         },

@@ -34,8 +34,15 @@ import {
 } from "./crypto-classifier";
 
 const JS_TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
-const MAX_PER_FILE = 20;
-const MAX_TOTAL = 500;
+
+/**
+ * Caps exist only to bound memory on pathological inputs — they are not a
+ * sampling strategy. Set too low they silently cap the inventory: a crypto
+ * library file legitimately contains dozens of usages, and every one is a
+ * distinct thing to remediate. Overridable per deployment.
+ */
+const MAX_PER_FILE = Number(process.env.CRYPTOSCAN_MAX_PER_FILE ?? 200);
+const MAX_TOTAL = Number(process.env.CRYPTOSCAN_MAX_TOTAL ?? 10_000);
 
 /** Per-file outcome, so the caller can report true scan coverage. */
 interface FileOutcome { detections: number; truncated: boolean }
