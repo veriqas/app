@@ -44,6 +44,7 @@ export default async function ActionsPage() {
         include: {
           risk: { select: { ref: true } },
           businessService: { select: { name: true } },
+          remediationCase: { select: { id: true, ref: true } },
         },
         take: 1,
       },
@@ -57,6 +58,7 @@ export default async function ActionsPage() {
   const open = actions.filter((a) => ["OPEN", "ASSIGNED", "IN_PROGRESS"].includes(a.status)).length;
   const pendingEvidence = actions.filter((a) => a.status === "PENDING_EVIDENCE").length;
   const overdue = actions.filter((a) => a.dueDate && a.dueDate < now && !["COMPLETED", "CANCELLED", "REJECTED"].includes(a.status)).length;
+  const unassigned = actions.filter((a) => !a.assigneeId && !["COMPLETED", "CANCELLED", "REJECTED", "CLOSED"].includes(a.status)).length;
 
   return (
     <PageShell
@@ -72,7 +74,7 @@ export default async function ActionsPage() {
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Critical Actions" value={critical} sub="requiring attention" variant="critical" icon={AlertOctagon} />
         <StatCard label="Open Actions" value={open} sub="in progress or open" variant="medium" icon={Clock} />
-        <StatCard label="Pending Evidence" value={pendingEvidence} sub="awaiting proof" variant="high" icon={User} />
+        <StatCard label="Unassigned" value={unassigned} sub="no owner yet" variant="high" icon={User} />
         <StatCard label="Overdue" value={overdue} sub="past due date" variant="critical" icon={AlertOctagon} />
       </div>
 
@@ -86,8 +88,9 @@ export default async function ActionsPage() {
               <TableHead>Status</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Owner</TableHead>
+              <TableHead>Assigned to</TableHead>
               <TableHead>Due Date</TableHead>
-              <TableHead>Related Risk</TableHead>
+              <TableHead>Related</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -95,6 +98,7 @@ export default async function ActionsPage() {
               const isOverdue = a.dueDate && a.dueDate < now && !["COMPLETED", "CANCELLED", "REJECTED"].includes(a.status);
               const riskRef = a.entities[0]?.risk?.ref;
               const bsName = a.entities[0]?.businessService?.name;
+              const remCase = a.entities[0]?.remediationCase;
               return (
                 <TableRow key={a.id}>
                   <TableCell><span className="font-mono text-[11px] text-slate-400">{a.ref}</span></TableCell>
@@ -113,13 +117,26 @@ export default async function ActionsPage() {
                     <span className="text-xs text-slate-600 dark:text-slate-400">{a.owner?.name ?? a.owner?.email ?? "—"}</span>
                   </TableCell>
                   <TableCell>
+                    {a.assignee ? (
+                      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{a.assignee.name ?? a.assignee.email}</span>
+                    ) : (
+                      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700">Unassigned</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <span className={`text-xs ${isOverdue ? "font-semibold text-red-600 dark:text-red-400" : "text-slate-500"}`}>
                       {a.dueDate ? formatDate(a.dueDate) : "—"}
                       {isOverdue && " ⚠"}
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className="font-mono text-[10px] text-slate-400">{riskRef ?? "—"}</span>
+                    {remCase ? (
+                      <a href={`/remediation/cases/${remCase.id}`} className="font-mono text-[10px] text-orange-600 underline decoration-orange-200 underline-offset-2 hover:decoration-orange-500">
+                        {remCase.ref}
+                      </a>
+                    ) : (
+                      <span className="font-mono text-[10px] text-slate-400">{riskRef ?? "—"}</span>
+                    )}
                   </TableCell>
                 </TableRow>
               );
