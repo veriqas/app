@@ -40,6 +40,7 @@ function mockAI(opts: { patchPath?: string; giveUp?: boolean } = {}): AIClient {
 
 // ── Fake execution env: real temp workspace; scanner findings are configurable ──
 function fakeEnv(afterFindings: ComparableFinding[]): RemediationExecutionEnvironment {
+  let scannerCalls = 0;
   return {
     async createWorkspace(repoUrl: string): Promise<Workspace> {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-test-"));
@@ -48,9 +49,14 @@ function fakeEnv(afterFindings: ComparableFinding[]): RemediationExecutionEnviro
       return { id: "ws", dir, repoUrl, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
     },
     async applyChanges() { /* no-op for test */ },
+    // Each attempt scans twice: once on the CLEAN workspace (to establish what
+    // already existed) and once after the patch. Returning the same findings for
+    // both would make anything the patch introduces look pre-existing, so
+    // REGRESSED could never fire. Model the two phases distinctly.
     async executeScanner(): Promise<RunScannersResult> {
+      const isPreScan = (++scannerCalls % 2) === 1;
       return {
-        findings: afterFindings,
+        findings: isPreScan ? [RSA_JWT] : afterFindings,
         scannerResults: ["CRYPTOSCAN", "SEMGREP"].map(s => ({ scanner: s, phase: "AFTER" as const, status: "OK" as const, findingCount: 0, durationMs: 1 })),
         anyScannerFailed: false,
       };
@@ -115,4 +121,35 @@ test("diagnoser giveUp=true stops early with ABANDONED", async () => {
 test("path traversal in a proposed patch is rejected (attempt ERROR)", async () => {
   const out = await runRemediation(caseId, tenantId, { ai: mockAI({ patchPath: "../../etc/passwd" }), env: fakeEnv([]) });
   assert.equal(out.finalStatus, "ERROR", "malicious path must abort the attempt, not be written");
+});
+
+test("verdict evidence is persisted as a VerificationRun the reviewer can inspect", async () => {
+  // The before/after fingerprint comparison is the proof a fix worked. If the
+  // orchestrator computes a verdict without persisting the evidence, the
+  // Remediation Center shows an empty comparison for every AI-driven attempt.
+  // Earlier tests share this case, so start from a clean slate.
+  await db.verificationRun.deleteMany({ where: { caseId } });
+  const out = await runRemediation(caseId, tenantId, { ai: mockAI(), env: fakeEnv([]) });
+  assert.equal(out.finalStatus, "VERIFIED_WITH_WARNINGS");
+
+  const runs = await db.verificationRun.findMany({
+    where: { caseId },
+    include: { findings: true, scannerResults: true },
+  });
+  assert.equal(runs.length, 1, "one verification run recorded for the attempt");
+  const run = runs[0];
+  assert.equal(run.status, "VERIFIED_WITH_WARNINGS", "run carries the deterministic verdict");
+  assert.ok(run.verdictReason, "run explains the verdict");
+
+  const before = run.findings.filter(f => f.phase === "BEFORE");
+  const after = run.findings.filter(f => f.phase === "AFTER");
+  assert.ok(before.length > 0, "baseline fingerprints recorded");
+  assert.equal(after.length, 0, "scanner-clean run records no residual fingerprints");
+  assert.ok(before.every(f => f.fingerprint.includes("|")), "fingerprints are structured for comparison");
+  assert.ok(run.scannerResults.length > 0, "per-scanner coverage recorded");
+
+  const attempt = await db.remediationAttempt.findFirst({
+    where: { caseId }, orderBy: { createdAt: "desc" }, select: { verificationRunId: true },
+  });
+  assert.equal(attempt?.verificationRunId, run.id, "attempt links to its verification run");
 });

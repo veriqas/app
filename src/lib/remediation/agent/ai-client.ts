@@ -64,6 +64,16 @@ export class AnthropicAIClient implements AIClient {
     });
     const textBlock = res.content.find((b): b is Anthropic.TextBlock => b.type === "text");
     if (!textBlock?.text) throw new Error("Empty AI response");
+    // A response cut off at the token limit leaves structurally invalid JSON.
+    // Reported as a truncation, not as an opaque parse error, so the cause is
+    // obvious and the attempt is not wasted on a misleading diagnosis.
+    if (res.stop_reason === "max_tokens") {
+      throw new Error(
+        `${params.stage} response was truncated at the ${params.maxTokens ?? 4096}-token limit ` +
+        `(the plan produced more output than the budget allows). Increase the stage's maxTokens ` +
+        `or narrow the plan's scope.`,
+      );
+    }
     return {
       json: extractJson<T>(textBlock.text),
       raw: textBlock.text,

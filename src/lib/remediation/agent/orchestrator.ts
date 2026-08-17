@@ -140,19 +140,36 @@ export async function runRemediation(caseId: string, tenantId: string, deps: Run
       const ranOk = after.scannerResults.some(r => r.status === "OK");
       let verdictState: string;
       let evidence: unknown;
+      let verdictReason: string;
+      let summary: unknown = null;
       if (!ranOk) {
         const v = calculateVerdict({ infraError: true });
-        verdictState = v.state; evidence = { reason: v.reason, scannerResults: after.scannerResults };
+        verdictState = v.state; verdictReason = v.reason;
+        evidence = { reason: v.reason, scannerResults: after.scannerResults };
       } else if (after.anyScannerFailed) {
         const v = calculateVerdict({ scanFailed: true, comparison: compareFindings(baseline, after.findings) });
-        verdictState = v.state; evidence = { reason: v.reason, scannerResults: after.scannerResults };
+        verdictState = v.state; verdictReason = v.reason;
+        evidence = { reason: v.reason, scannerResults: after.scannerResults };
       } else {
         const comparison = compareFindings(baseline, after.findings, preScan.findings);
         const v = calculateVerdict({ comparison, buildStatus, testStatus });
-        verdictState = v.state; evidence = { reason: v.reason, summary: comparison.summary, buildStatus, testStatus, scannerResults: after.scannerResults };
+        verdictState = v.state; verdictReason = v.reason; summary = comparison.summary;
+        evidence = { reason: v.reason, summary: comparison.summary, buildStatus, testStatus, scannerResults: after.scannerResults };
       }
 
-      await db.remediationAttempt.update({ where: { id: attempt.id }, data: { verdict: verdictState } });
+      // Persist the evidence behind this verdict as a VerificationRun. Without
+      // this the before/after fingerprint comparison — the proof that the fix
+      // worked — exists only in memory and never reaches the reviewer.
+      const runId = await persistVerificationRun({
+        caseId, tenantId, repoUrl: rc.repoUrl,
+        baseline, after, buildStatus, testStatus,
+        verdictState, verdictReason, summary,
+      });
+
+      await db.remediationAttempt.update({
+        where: { id: attempt.id },
+        data: { verdict: verdictState, verificationRunId: runId },
+      });
 
       if (verdictState === "VERIFIED" || verdictState === "VERIFIED_WITH_WARNINGS") {
         finalStatus = verdictState;
@@ -179,6 +196,82 @@ export async function runRemediation(caseId: string, tenantId: string, deps: Run
   }
 
   return { caseId, attempts: attemptIds.length, finalStatus, attemptIds };
+}
+
+/**
+ * Persist the deterministic evidence behind an attempt's verdict as a
+ * VerificationRun, mirroring what the standalone verification service records.
+ * The AI never writes the verdict — this only stores what the scanners found,
+ * so the reviewer can see the before/after fingerprint comparison that justifies
+ * it. Failures here must never change the verdict, so they are swallowed.
+ */
+async function persistVerificationRun(args: {
+  caseId: string;
+  tenantId: string;
+  repoUrl: string | null;
+  baseline: ComparableFinding[];
+  after: { findings: ComparableFinding[]; scannerResults: { scanner: string; status: string; findingCount: number; durationMs?: number; error?: string | null }[] };
+  buildStatus: string;
+  testStatus: string;
+  verdictState: string;
+  verdictReason: string;
+  summary: unknown;
+}): Promise<string | null> {
+  const fp = (scanner: string, algorithm?: string | null, filePath?: string | null, dependency?: string | null) =>
+    `${scanner}|${(algorithm ?? "").toLowerCase()}|${(filePath ?? "").toLowerCase()}|${(dependency ?? "").toLowerCase()}`;
+  try {
+    const now = new Date();
+    const run = await db.verificationRun.create({
+      data: {
+        ref: `VR-${shortId()}`,
+        caseId: args.caseId,
+        tenantId: args.tenantId,
+        repoUrl: args.repoUrl,
+        status: args.verdictState,
+        verdictReason: args.verdictReason,
+        deadlineAt: now,
+        startedAt: now,
+        finishedAt: now,
+        buildStatus: args.buildStatus,
+        testStatus: args.testStatus,
+        summary: (args.summary ?? undefined) as object | undefined,
+      },
+      select: { id: true },
+    });
+    if (args.baseline.length > 0) {
+      await db.verificationFinding.createMany({
+        data: args.baseline.map(f => ({
+          verificationRunId: run.id, phase: "BEFORE", scanner: f.scanner,
+          fingerprint: fp(f.scanner, f.algorithm, f.filePath, f.dependency),
+          algorithm: f.algorithm ?? null, normalizedLocation: f.filePath ?? null,
+          dependency: f.dependency ?? null, severity: f.severity ?? null,
+        })),
+      });
+    }
+    if (args.after.findings.length > 0) {
+      await db.verificationFinding.createMany({
+        data: args.after.findings.map(f => ({
+          verificationRunId: run.id, phase: "AFTER", scanner: f.scanner,
+          fingerprint: fp(f.scanner, f.algorithm, f.filePath, f.dependency),
+          algorithm: f.algorithm ?? null, normalizedLocation: f.filePath ?? null,
+          dependency: f.dependency ?? null, severity: f.severity ?? null,
+        })),
+      });
+    }
+    if (args.after.scannerResults.length > 0) {
+      await db.verificationScannerResult.createMany({
+        data: args.after.scannerResults.map(r => ({
+          verificationRunId: run.id, phase: "AFTER", scanner: r.scanner,
+          status: r.status, findingCount: r.findingCount,
+          durationMs: r.durationMs ?? null, error: r.error ?? null,
+        })),
+      });
+    }
+    return run.id;
+  } catch (e) {
+    console.error("[remediation] failed to persist verification evidence:", e);
+    return null;   // never let bookkeeping change the verdict
+  }
 }
 
 async function recordStage(attemptId: string, stage: string, res: { json: unknown; model?: string; promptTokens?: number; completionTokens?: number }) {

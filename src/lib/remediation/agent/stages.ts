@@ -84,7 +84,9 @@ export async function generatePatch(ai: AIClient, p: { plan: RemediationPlan; co
 Return JSON: {"changes":[{"filePath","changeType":"MODIFY|ADD|DELETE|DEP_UPGRADE","newContent","reason"}],"notes"}`;
   const user = `Plan: ${JSON.stringify(p.plan)}
 ${wrapUntrusted("current file contents", contextText(p.context))}`;
-  return ai.completeJSON<PatchResult>({ stage: "PATCHER", system, user, maxTokens: 8192 });
+  // A multi-file migration patch is the largest output any stage produces;
+  // 8k proved too small and truncated mid-JSON on a real migration.
+  return ai.completeJSON<PatchResult>({ stage: "PATCHER", system, user, maxTokens: 24576 });
 }
 
 export async function diagnoseFailure(ai: AIClient, p: { plan: RemediationPlan; evidence: unknown }) {
