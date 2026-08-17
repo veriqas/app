@@ -18,6 +18,8 @@ import { investigate, analyzeRootCause, planRemediation, generatePatch, diagnose
 import { validateChange, type ValidatedChange } from "./patch-safety";
 import { compareFindings, type ComparableFinding } from "@/lib/remediation/verification/comparator";
 import { calculateVerdict, type BuildTestStatus } from "@/lib/remediation/verification/verdict";
+import { evaluateStrategyPolicy } from "@/lib/remediation/policy/strategy-policy";
+import { findProhibitedIntroductions, describeViolations } from "@/lib/remediation/policy/patch-policy-check";
 
 export const MAX_ATTEMPTS = 3;
 
@@ -67,6 +69,11 @@ export async function runRemediation(caseId: string, tenantId: string, deps: Run
   }));
   const relevantSensors = [...new Set(rc.evidenceSources)];
 
+  // Scanner-authoritative classification for the policy. Taken from the linked
+  // observations, never from the AI: the policy must reason over evidence.
+  const primitiveType = rc.findings.map(f => f.observation?.primitiveType).find(Boolean) as string | undefined;
+  const quantumClass = rc.findings.map(f => f.observation?.quantumClass).find(Boolean) as string | undefined;
+
   const attemptIds: string[] = [];
   let priorEvidence: unknown = null;
   let finalStatus = "FAILED";
@@ -90,9 +97,44 @@ export async function runRemediation(caseId: string, tenantId: string, deps: Run
       const rca = await analyzeRootCause(deps.ai, { caseInfo, investigation: inv.json });
       await recordStage(attempt.id, "ROOT_CAUSE", rca);
       await db.remediationAttempt.update({ where: { id: attempt.id }, data: { status: "PLANNING", investigationJson: inv.json as object, rootCauseJson: rca.json as object } });
-      const plan = await planRemediation(deps.ai, { caseInfo, investigation: inv.json, rootCause: rca.json });
+      // ── DETERMINISTIC STRATEGY POLICY ─────────────────────────────────────
+      // Computed from evidence already established, with no AI involvement, and
+      // recorded so the decision can be replayed. It bounds what the planner may
+      // attempt; whether the result is actually safe remains the verifier's call.
+      const policy = evaluateStrategyPolicy({
+        algorithm: rc.algorithm,
+        primitiveType: primitiveType ?? null,
+        quantumClass: quantumClass ?? null,
+        evidenceSources: rc.evidenceSources,
+        affectedDependencies: rc.affectedDependencies,
+        operation: inv.json.operation ?? null,
+        purposeRaw: inv.json.purpose ?? rc.purpose ?? null,
+        dataProtected: inv.json.dataProtected ?? null,
+        isGenuine: typeof inv.json.isGenuine === "boolean" ? inv.json.isGenuine : null,
+        scope: inv.json.scope === "SYSTEMIC" || inv.json.scope === "LOCAL" ? inv.json.scope : null,
+        dependents: Array.isArray(inv.json.dependents) ? inv.json.dependents : [],
+        confidence: typeof inv.json.confidence === "number" ? inv.json.confidence : null,
+        migrationConstraints: Array.isArray(rca.json.migrationConstraints) ? rca.json.migrationConstraints : [],
+      });
+      await recordStage(attempt.id, "POLICY", { json: policy });
+      await db.remediationAttempt.update({
+        where: { id: attempt.id },
+        data: { strategyPolicyVersion: policy.policyVersion, policyJson: policy as unknown as object },
+      });
+
+      const plan = await planRemediation(deps.ai, { caseInfo, investigation: inv.json, rootCause: rca.json, policy });
       await recordStage(attempt.id, "PLANNER", plan);
       await db.remediationAttempt.update({ where: { id: attempt.id }, data: { strategy: plan.json.strategy, planJson: plan.json as object } });
+
+      // Enforcement, not trust: a strategy outside the permitted set is discarded.
+      if (!policy.permittedStrategies.includes(plan.json.strategy)) {
+        const msg = `OUT_OF_POLICY: planner selected ${plan.json.strategy}, which policy ${policy.policyVersion} does not permit for this case (permitted: ${policy.permittedStrategies.join(", ")}).`;
+        await db.remediationAttempt.update({ where: { id: attempt.id }, data: { error: msg } });
+        finalStatus = "OUT_OF_POLICY";
+        await finalizeAttempt(attempt.id, "OUT_OF_POLICY");
+        priorEvidence = { policyViolation: msg, policy };
+        continue;
+      }
 
       if (plan.json.strategy === "MANUAL_REVIEW") {
         finalStatus = "REVIEW";
@@ -102,7 +144,7 @@ export async function runRemediation(caseId: string, tenantId: string, deps: Run
 
       // PATCH
       await db.remediationAttempt.update({ where: { id: attempt.id }, data: { status: "PATCHING" } });
-      const patch = await generatePatch(deps.ai, { plan: plan.json, context });
+      const patch = await generatePatch(deps.ai, { plan: plan.json, context, policy });
       await recordStage(attempt.id, "PATCHER", patch);
 
       const readOriginal = (rel: string): string | null => {
@@ -112,6 +154,23 @@ export async function runRemediation(caseId: string, tenantId: string, deps: Run
       for (const ch of patch.json.changes ?? []) {
         validated.push(validateChange(ch, readOriginal)); // throws on path traversal / binary / oversize
       }
+      // Patch-content policy gate. The planner can satisfy the policy
+      // syntactically while the generated code introduces a prohibited primitive
+      // (the RSA -> "hybrid" -> Ed25519 path). Checked on the actual content,
+      // before anything is applied or verified.
+      const contentViolations = findProhibitedIntroductions(
+        validated.map(v => ({ filePath: v.filePath, originalContent: v.originalContent ?? null, newContent: v.newContent ?? null })),
+        policy.prohibitedTargets,
+      );
+      if (contentViolations.length > 0) {
+        const msg = `OUT_OF_POLICY: the generated patch introduces prohibited cryptography — ${describeViolations(contentViolations)}. Rejected before verification under policy ${policy.policyVersion}.`;
+        await db.remediationAttempt.update({ where: { id: attempt.id }, data: { error: msg } });
+        finalStatus = "OUT_OF_POLICY";
+        await finalizeAttempt(attempt.id, "OUT_OF_POLICY");
+        priorEvidence = { policyViolation: msg, violations: contentViolations, policy };
+        continue;
+      }
+
       await db.remediationChange.createMany({
         data: validated.map(v => ({
           attemptId: attempt.id, filePath: v.filePath, changeType: v.changeType,

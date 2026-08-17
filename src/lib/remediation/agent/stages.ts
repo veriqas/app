@@ -7,6 +7,7 @@ import type { AIClient } from "./ai-client";
 import { wrapUntrusted } from "./ai-client";
 import type { ContextBundle } from "./context-acquirer";
 import { lookupAlgorithm } from "./knowledge-base";
+import type { StrategyPolicy, Strategy } from "@/lib/remediation/policy/policy-types";
 
 export interface CaseInfo {
   ref: string;
@@ -18,12 +19,10 @@ export interface CaseInfo {
   evidenceSources: string[];
 }
 
-export const STRATEGIES = [
-  "CODE_CHANGE", "DEPENDENCY_UPGRADE", "CONFIGURATION_CHANGE",
-  "CRYPTOGRAPHIC_MIGRATION", "KEY_MIGRATION", "HYBRID_PQC_MIGRATION",
-  "REMOVE_UNUSED_CRYPTO", "MANUAL_REVIEW",
-] as const;
-export type Strategy = (typeof STRATEGIES)[number];
+// The strategy vocabulary is owned by the policy layer, which decides which of
+// these are admissible for a given case. Re-exported for existing consumers.
+export { STRATEGIES } from "@/lib/remediation/policy/policy-types";
+export type { Strategy } from "@/lib/remediation/policy/policy-types";
 
 export interface InvestigationResult {
   primitive: string; algorithm: string; operation: string; purpose: string;
@@ -69,18 +68,36 @@ Return JSON: {"rootCause","why","migrationConstraints":[]}`;
   return ai.completeJSON<RootCauseResult>({ stage: "ROOT_CAUSE", system, user });
 }
 
-export async function planRemediation(ai: AIClient, p: { caseInfo: CaseInfo; investigation: InvestigationResult; rootCause: RootCauseResult }) {
+export async function planRemediation(ai: AIClient, p: { caseInfo: CaseInfo; investigation: InvestigationResult; rootCause: RootCauseResult; policy: StrategyPolicy }) {
   const kb = lookupAlgorithm(p.caseInfo.algorithm);
+  const pol = p.policy;
+  // The policy boundary is stated as a hard constraint. The planner still decides
+  // the implementation, the files and the migration mechanics — but not whether a
+  // class of remediation is acceptable. That has already been decided.
   const system = `You are a remediation planner. Select the SMALLEST safe strategy that resolves the root cause. Prefer established libraries and NIST standards; never invent cryptography, never weaken security.
-Strategy must be one of: ${STRATEGIES.join(", ")}.
+
+A deterministic security policy (version ${pol.policyVersion}) has already established which strategies are admissible for this case. You MUST choose "strategy" from PERMITTED. Choosing anything else is invalid and will be rejected.
+PERMITTED: ${pol.permittedStrategies.join(", ")}
+${pol.preferredStrategy ? `PREFERRED (unless the evidence argues otherwise): ${pol.preferredStrategy}` : ""}
+PROHIBITED STRATEGIES: ${pol.prohibitedStrategies.map(x => `${x.strategy} (${x.reason})`).join(" | ") || "none"}
+PROHIBITED REPLACEMENT ALGORITHMS — must not appear in any resulting change: ${pol.prohibitedTargets.join(", ") || "none"}
+REQUIRED PROPERTIES OF ANY REPLACEMENT: ${pol.requiredProperties.join(" | ") || "none"}
+POLICY RATIONALE: ${pol.rationale.map(r => `${r.rule}: ${r.because}`).join(" | ")}
+
 Return JSON: {"strategy","why","affectedFiles":[],"affectedDependencies":[],"expectedSecurityImprovement","expectedCompatibilityImpact","verificationRequirements":[]}`;
   const user = `Case ${p.caseInfo.ref}. Investigation: ${JSON.stringify(p.investigation)}. RootCause: ${JSON.stringify(p.rootCause)}.
 PQC guidance: ${kb ? JSON.stringify({ pqc: kb.pqcAlternatives, hybrid: kb.hybridAlternatives, standards: kb.standards }) : "n/a"}`;
   return ai.completeJSON<RemediationPlan>({ stage: "PLANNER", system, user });
 }
 
-export async function generatePatch(ai: AIClient, p: { plan: RemediationPlan; context: ContextBundle }) {
-  const system = `You are a careful patcher. Produce the MINIMAL multi-file changes implementing the plan. Do not modify unrelated code, formatting, or dependencies. Every change needs a reason. For each modified/added file, return its FULL new content.
+export async function generatePatch(ai: AIClient, p: { plan: RemediationPlan; context: ContextBundle; policy?: StrategyPolicy }) {
+  const bound = p.policy && p.policy.prohibitedTargets.length > 0
+    ? `
+The following cryptographic primitives are PROHIBITED and must not appear anywhere in your changes: ${p.policy.prohibitedTargets.join(", ")}.
+Any replacement must satisfy: ${p.policy.requiredProperties.join(" | ") || "n/a"}.
+Patches introducing a prohibited primitive are rejected before verification.`
+    : "";
+  const system = `You are a careful patcher. Produce the MINIMAL multi-file changes implementing the plan. Do not modify unrelated code, formatting, or dependencies. Every change needs a reason. For each modified/added file, return its FULL new content.${bound}
 Return JSON: {"changes":[{"filePath","changeType":"MODIFY|ADD|DELETE|DEP_UPGRADE","newContent","reason"}],"notes"}`;
   const user = `Plan: ${JSON.stringify(p.plan)}
 ${wrapUntrusted("current file contents", contextText(p.context))}`;

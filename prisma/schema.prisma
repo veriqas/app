@@ -1525,6 +1525,10 @@ model RemediationAttempt {
   investigationJson Json?
   rootCauseJson     Json?
   planJson          Json?
+  // Deterministic strategy policy applied to this attempt. Versioned so a past
+  // decision can be explained against the rules in force when it was made.
+  strategyPolicyVersion String?
+  policyJson            Json?
   verdict           String?   // mirror of the terminal VerificationRun verdict
   verificationRunId String?
   diagnosisJson     Json?     // populated when a prior attempt failed
