@@ -4,64 +4,52 @@ import { db } from "@/lib/db/client";
 import { getServerSession } from "@/lib/auth/session";
 import { isV2Enabled } from "@/lib/remediation/feature-flag";
 import { formatDateTime } from "@/lib/utils";
+import { lookupAlgorithm } from "@/lib/remediation/agent/knowledge-base";
 import { CaseActions } from "@/components/remediation/case-actions";
+import { PolicyPanel, strategyLabel, type PolicyJson } from "@/components/remediation/policy-panel";
+import { DecisionChain } from "@/components/remediation/decision-chain";
 import {
-  Bot, ShieldCheck, ShieldAlert, FileCode2, GitBranch, ChevronRight,
-  CircleDot, CheckCircle2, XCircle, MinusCircle, ArrowRight, Layers,
+  Bot, ShieldCheck, ShieldAlert, FileCode2, GitBranch, Layers, ScanLine,
+  CheckCircle2, XCircle, CircleDot, AlertTriangle, Target, Microscope,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-const CASE_STATUS: Record<string, { label: string; color: string; bg: string }> = {
-  OPEN:        { label: "Open",         color: "#6B7280", bg: "#F3F4F6" },
-  PLANNED:     { label: "Planned",      color: "#2563EB", bg: "#DBEAFE" },
-  IN_PROGRESS: { label: "In Progress",  color: "#D97706", bg: "#FEF3C7" },
-  VERIFIED:    { label: "Verified",     color: "#16A34A", bg: "#DCFCE7" },
-  FAILED:      { label: "Failed",       color: "#DC2626", bg: "#FEE2E2" },
-  DISMISSED:   { label: "Dismissed",    color: "#8A95A3", bg: "#F5F5F7" },
+const VERDICT: Record<string, { label: string; color: string; bg: string; border: string; good: boolean }> = {
+  VERIFIED:               { label: "Verified",               color: "#15803D", bg: "#DCFCE7", border: "#86EFAC", good: true },
+  VERIFIED_WITH_WARNINGS: { label: "Verified with warnings", color: "#4D7C0F", bg: "#ECFCCB", border: "#BEF264", good: true },
+  FAILED:                 { label: "Not verified",           color: "#B91C1C", bg: "#FEE2E2", border: "#FCA5A5", good: false },
+  REGRESSED:              { label: "Regressed",              color: "#B91C1C", bg: "#FEE2E2", border: "#FCA5A5", good: false },
+  BUILD_FAILED:           { label: "Build failed",           color: "#B91C1C", bg: "#FEE2E2", border: "#FCA5A5", good: false },
+  TEST_FAILED:            { label: "Tests failed",           color: "#B91C1C", bg: "#FEE2E2", border: "#FCA5A5", good: false },
+  SCAN_FAILED:            { label: "Scan failed",            color: "#B91C1C", bg: "#FEE2E2", border: "#FCA5A5", good: false },
+  TIMEOUT:                { label: "Timed out",              color: "#B91C1C", bg: "#FEE2E2", border: "#FCA5A5", good: false },
+  NO_BASELINE:            { label: "No baseline",            color: "#64748B", bg: "#F1F5F9", border: "#CBD5E1", good: false },
 };
 
-const ATTEMPT_STATUS: Record<string, { label: string; color: string; bg: string }> = {
-  PENDING:                 { label: "Pending",       color: "#6B7280", bg: "#F3F4F6" },
-  INVESTIGATING:           { label: "Investigating", color: "#D97706", bg: "#FEF3C7" },
-  PLANNING:                { label: "Planning",      color: "#D97706", bg: "#FEF3C7" },
-  PATCHING:                { label: "Patching",      color: "#D97706", bg: "#FEF3C7" },
-  VERIFYING:               { label: "Verifying",     color: "#2563EB", bg: "#DBEAFE" },
-  REVIEW:                  { label: "Ready for Review", color: "#2563EB", bg: "#DBEAFE" },
-  VERIFIED:                { label: "Verified",      color: "#16A34A", bg: "#DCFCE7" },
-  VERIFIED_WITH_WARNINGS:  { label: "Verified (warnings)", color: "#65A30D", bg: "#ECFCCB" },
-  FAILED:                  { label: "Failed",        color: "#DC2626", bg: "#FEE2E2" },
-  REGRESSED:               { label: "Regressed",     color: "#DC2626", bg: "#FEE2E2" },
-  ERROR:                   { label: "Error",         color: "#DC2626", bg: "#FEE2E2" },
-  ABANDONED:               { label: "Abandoned",     color: "#8A95A3", bg: "#F5F5F7" },
+const QUANTUM: Record<string, { label: string; severity: string; color: string; bg: string }> = {
+  QUANTUM_VULNERABLE:       { label: "Quantum vulnerable", severity: "Critical", color: "#B91C1C", bg: "#FEE2E2" },
+  QUANTUM_REDUCED_SECURITY: { label: "Reduced security",   severity: "Medium",   color: "#B45309", bg: "#FEF3C7" },
+  QUANTUM_RESILIENT:        { label: "Quantum resilient",  severity: "Low",      color: "#15803D", bg: "#DCFCE7" },
+  POST_QUANTUM:             { label: "Post-quantum",       severity: "Low",      color: "#15803D", bg: "#DCFCE7" },
+  HYBRID:                   { label: "Hybrid",             severity: "Medium",   color: "#4338CA", bg: "#E0E7FF" },
+  UNKNOWN:                  { label: "Unclassified",       severity: "Unknown",  color: "#64748B", bg: "#F1F5F9" },
 };
 
-const VERDICT: Record<string, { label: string; color: string; bg: string; good: boolean }> = {
-  VERIFIED:               { label: "Verified",             color: "#16A34A", bg: "#DCFCE7", good: true },
-  VERIFIED_WITH_WARNINGS: { label: "Verified with warnings", color: "#65A30D", bg: "#ECFCCB", good: true },
-  FAILED:                 { label: "Failed",               color: "#DC2626", bg: "#FEE2E2", good: false },
-  REGRESSED:              { label: "Regressed",            color: "#DC2626", bg: "#FEE2E2", good: false },
-  BUILD_FAILED:           { label: "Build failed",         color: "#DC2626", bg: "#FEE2E2", good: false },
-  TEST_FAILED:            { label: "Test failed",          color: "#DC2626", bg: "#FEE2E2", good: false },
-  SCAN_FAILED:            { label: "Scan failed",          color: "#DC2626", bg: "#FEE2E2", good: false },
-  TIMEOUT:                { label: "Timed out",            color: "#DC2626", bg: "#FEE2E2", good: false },
-  NO_BASELINE:            { label: "No baseline",          color: "#8A95A3", bg: "#F5F5F7", good: false },
-};
-
-const STAGE_ORDER = ["INVESTIGATOR", "ROOT_CAUSE", "PLANNER", "PATCHER", "DIAGNOSER"] as const;
-const STAGE_LABEL: Record<string, string> = {
-  INVESTIGATOR: "Investigate",
-  ROOT_CAUSE:   "Root Cause",
-  PLANNER:      "Plan",
-  PATCHER:      "Patch",
-  DIAGNOSER:    "Diagnose",
-};
+/** The staged pipeline a reviewer expects to see completed, in order. */
+const PIPELINE: { key: string; label: string }[] = [
+  { key: "INVESTIGATOR", label: "Investigation" },
+  { key: "ROOT_CAUSE",   label: "Root cause" },
+  { key: "POLICY",       label: "Policy decision" },
+  { key: "PLANNER",      label: "Strategy" },
+  { key: "PATCHER",      label: "Patch generated" },
+  { key: "APPLIED",      label: "Patch applied" },
+];
 
 function DiffBlock({ diff }: { diff: string }) {
-  const lines = diff.split("\n");
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-100 bg-slate-50">
-      {lines.map((line, i) => {
+      {diff.split("\n").map((line, i) => {
         if (line.startsWith("+++") || line.startsWith("---"))
           return <div key={i} className="px-3 py-0.5 font-mono text-[11px] text-slate-400">{line}</div>;
         if (line.startsWith("@@"))
@@ -76,139 +64,290 @@ function DiffBlock({ diff }: { diff: string }) {
   );
 }
 
+function Stat({ value, label, icon: Icon }: { value: React.ReactNode; label: string; icon: React.ElementType }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <Icon className="h-4 w-4 shrink-0 text-slate-300" />
+      <div>
+        <p className="text-lg font-bold leading-none text-slate-800">{value}</p>
+        <p className="mt-0.5 text-[11px] text-slate-400">{label}</p>
+      </div>
+    </div>
+  );
+}
+
 export default async function RemediationCasePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const ctx = await getServerSession();
   const tenantId = ctx?.tenantId ?? "";
-
   if (!isV2Enabled()) notFound();
 
   const c = await db.remediationCase.findFirst({
     where: { id, tenantId },
     include: {
-      findings: {
-        include: {
-          observation: {
-            select: { ref: true, algorithm: true, filePath: true, endpoint: true, quantumClass: true },
-          },
-        },
-      },
-      attempts: {
-        orderBy: { attemptNumber: "asc" },
-        include: {
-          stageResults: { orderBy: { createdAt: "asc" } },
-          changes: true,
-        },
-      },
-      verificationRuns: {
-        orderBy: { createdAt: "desc" },
-        include: { findings: true, scannerResults: true },
-      },
+      findings: { include: { observation: { select: { ref: true, algorithm: true, primitiveType: true, quantumClass: true, filePath: true, lineNumber: true, sensorType: true, confidence: true } } } },
+      attempts: { orderBy: { attemptNumber: "asc" }, include: { stageResults: { orderBy: { createdAt: "asc" } }, changes: true } },
+      verificationRuns: { orderBy: { createdAt: "desc" }, include: { findings: true, scannerResults: true } },
     },
   });
-
   if (!c) notFound();
 
-  const meta = CASE_STATUS[c.status] ?? CASE_STATUS.OPEN;
-  const latestAttempt = c.attempts[c.attempts.length - 1];
-  const canRemediate = c.attempts.length < 3 && !["VERIFIED", "DISMISSED"].includes(c.status);
+  const obs = c.findings.map(f => f.observation).filter(Boolean);
+  const quantumClass = String(obs.find(o => o?.quantumClass)?.quantumClass ?? "UNKNOWN");
+  const primitiveType = String(obs.find(o => o?.primitiveType)?.primitiveType ?? "");
+  const q = QUANTUM[quantumClass] ?? QUANTUM.UNKNOWN;
+  const scanners = Array.from(new Set(c.findings.map(f => f.sensorType)));
+
+  const latest = c.attempts[c.attempts.length - 1];
+  const inv = latest?.investigationJson as { purpose?: string; dataProtected?: string; confidence?: number; scope?: string; dependents?: string[]; isGenuine?: boolean } | null;
+  const rca = latest?.rootCauseJson as { rootCause?: string; why?: string; migrationConstraints?: string[] } | null;
+  const plan = latest?.planJson as { strategy?: string; why?: string; expectedSecurityImprovement?: string; expectedCompatibilityImpact?: string } | null;
+  const policy = latest?.policyJson as PolicyJson | null;
+  const latestRun = c.verificationRuns[0];
+
+  // Standards-based target from the knowledge base.
+  //
+  // Selected on the POLICY's purpose category rather than the catalogued
+  // primitive type: RSA is catalogued as PUBLIC_KEY_ENCRYPTION even when it is
+  // used to sign, so keying on the primitive alone would recommend a KEM for a
+  // signing case. Where the evidence does not clearly indicate one, none is
+  // shown rather than guessing at a NIST standard.
+  const kb = lookupAlgorithm(c.algorithm);
+  const purposeCategory = policy?.classification?.purposeCategory ?? "";
+  const wantsSignature = ["AUTHENTICATION", "SIGNATURE"].includes(purposeCategory) || primitiveType === "DIGITAL_SIGNATURE";
+  const wantsKem = ["KEY_ESTABLISHMENT", "CONFIDENTIALITY"].includes(purposeCategory)
+    || (!wantsSignature && (primitiveType === "KEY_ESTABLISHMENT" || primitiveType === "PUBLIC_KEY_ENCRYPTION"));
+  const preferredTarget = wantsSignature
+    ? kb?.pqcAlternatives?.find(a => /signature|DSA/i.test(a)) ?? null
+    : wantsKem
+    ? kb?.pqcAlternatives?.find(a => /KEM|key establishment/i.test(a)) ?? null
+    : kb?.pqcAlternatives?.length === 1 ? kb.pqcAlternatives[0] : null;
+
+  const confidencePct = typeof inv?.confidence === "number" ? Math.round(inv.confidence * 100) : null;
+  const manualReview = latest?.strategy === "MANUAL_REVIEW" || latest?.status === "REVIEW" && !latest?.verdict;
+  const outOfPolicy = c.attempts.some(a => a.status === "OUT_OF_POLICY");
 
   return (
     <PageShell
       title="Remediation Case"
-      breadcrumbs={[
-        { label: "Governance" },
-        { label: "Remediation Center", href: "/remediation" },
-        { label: c.ref },
-      ]}
+      breadcrumbs={[{ label: "Governance" }, { label: "Remediation Center", href: "/remediation" }, { label: c.ref }]}
     >
       <div className="max-w-5xl space-y-5">
 
-        {/* ── Overview ── */}
-        <section className="rounded-2xl bg-white p-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                style={{ background: "linear-gradient(135deg, #0C1524 0%, #1a2f4a 100%)" }}>
-                <Layers className="h-5 w-5" style={{ color: "#f8781e" }} />
+        {/* ── Case header ── */}
+        <section className="rounded-2xl bg-white p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-md px-2 py-1 text-[11px] font-bold uppercase tracking-wider" style={{ color: q.color, background: q.bg }}>
+                  {q.severity} · {q.label}
+                </span>
+                <code className="font-mono text-xs text-slate-400">{c.ref}</code>
               </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <code className="text-xs font-mono text-slate-400">{c.ref}</code>
-                  <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                    style={{ color: meta.color, background: meta.bg }}>{meta.label}</span>
-                  {c.algorithm && (
-                    <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                      style={{ color: "#f8781e", background: "rgba(248,120,30,0.08)" }}>{c.algorithm}</span>
-                  )}
-                </div>
-                <h2 className="mt-1.5 font-semibold text-slate-800" style={{ fontSize: "16px" }}>{c.title}</h2>
-                {c.repoUrl && (
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    {c.repoUrl}{c.purpose ? <> <ChevronRight className="inline h-3 w-3" /> {c.purpose}</> : null}
-                  </p>
+              <h2 className="mt-2 text-[26px] font-bold leading-tight tracking-[-0.02em] text-slate-900">
+                {c.algorithm ?? "Unclassified"}
+                {inv?.purpose && <span className="font-normal text-slate-400"> · {inv.purpose}</span>}
+              </h2>
+              {c.repoUrl && <p className="mt-1 text-xs text-slate-400">{c.repoUrl}</p>}
+            </div>
+            <CaseActions caseId={c.id} canRemediate={c.attempts.length < 3 && !["VERIFIED", "DISMISSED"].includes(c.status)} attemptsUsed={c.attempts.length} caseStatus={c.status} />
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4 md:grid-cols-4">
+            <Stat value={c.findingCount} label={`correlated finding${c.findingCount === 1 ? "" : "s"}`} icon={GitBranch} />
+            <Stat value={scanners.length} label={`scanner${scanners.length === 1 ? "" : "s"}`} icon={ScanLine} />
+            <Stat value={c.affectedFiles.length} label={`affected file${c.affectedFiles.length === 1 ? "" : "s"}`} icon={FileCode2} />
+            <Stat value={`${c.confidence}%`} label="correlation confidence" icon={Layers} />
+          </div>
+        </section>
+
+        {/* ── The four layers, for this case ── */}
+        <DecisionChain
+          strategyLabel={strategyLabel}
+          state={{
+            aiStrategy: latest?.strategy ?? null,
+            policyPermitted: !latest?.policyJson ? null : latest.status !== "OUT_OF_POLICY",
+            policyVersion: latest?.strategyPolicyVersion ?? null,
+            verdict: latestRun?.status ?? latest?.verdict ?? null,
+            humanDecision: c.status === "VERIFIED" ? "APPROVED" : "PENDING",
+          }}
+        />
+
+        {/* ── Manual review ── */}
+        {manualReview && (
+          <section className="rounded-2xl border-2 px-6 py-5" style={{ borderColor: "#FCD34D", background: "#FFFBEB" }}>
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-amber-800">Manual review required</h3>
+                <p className="mt-1.5 text-[14px] leading-relaxed text-amber-900">
+                  VERIQAS determined that automatic migration would introduce unacceptable uncertainty.
+                </p>
+                {plan?.why && (
+                  <div className="mt-3 rounded-lg bg-white/60 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">Why</p>
+                    <p className="mt-0.5 text-[13px] leading-relaxed text-slate-700">{plan.why}</p>
+                  </div>
                 )}
               </div>
             </div>
-            <CaseActions caseId={c.id} canRemediate={canRemediate} attemptsUsed={c.attempts.length} caseStatus={c.status} />
-          </div>
+          </section>
+        )}
 
-          {(c.rootCause || c.securityImpact) && (
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {c.rootCause && (
-                <div className="rounded-xl bg-slate-50 px-4 py-3">
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Root Cause</p>
-                  <p className="text-sm leading-relaxed text-slate-600">{c.rootCause}</p>
-                </div>
-              )}
-              {c.securityImpact && (
-                <div className="rounded-xl px-4 py-3" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)" }}>
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-red-500">Security Impact</p>
-                  <p className="text-sm leading-relaxed text-slate-600">{c.securityImpact}</p>
-                </div>
-              )}
+        {/* ── AI analysis ── */}
+        {(inv || rca || plan) && (
+          <section className="rounded-2xl bg-white p-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}>
+            <div className="mb-4 flex items-center gap-2">
+              <Microscope className="h-4 w-4" style={{ color: "#f8781e" }} />
+              <h3 className="text-sm font-semibold text-slate-700">AI Analysis</h3>
             </div>
-          )}
 
-          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
-            <span><span className="font-semibold text-slate-700">{c.confidence}%</span> confidence</span>
-            <span><span className="font-semibold text-slate-700">{c.findingCount}</span> findings</span>
-            {c.evidenceSources.length > 0 && (
-              <span className="flex items-center gap-1.5">
-                Evidence:
-                {c.evidenceSources.map(s => (
-                  <span key={s} className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{s}</span>
-                ))}
+            <dl className="space-y-4">
+              {inv?.purpose && (
+                <Field label="Purpose">
+                  {inv.purpose}
+                  {inv.dataProtected && <span className="text-slate-400"> — protects {inv.dataProtected}</span>}
+                </Field>
+              )}
+              {rca?.rootCause && <Field label="Root cause">{rca.rootCause}</Field>}
+              {plan?.strategy && (
+                <Field label="Recommended strategy">
+                  <span className="font-semibold" style={{ color: "#f8781e" }}>{strategyLabel(plan.strategy)}</span>
+                  {plan.expectedSecurityImprovement && (
+                    <span className="mt-0.5 block text-[13px] font-normal text-slate-500">{plan.expectedSecurityImprovement}</span>
+                  )}
+                </Field>
+              )}
+              {preferredTarget && <Field label="Standards-based target"><Target className="mr-1 inline h-3.5 w-3.5 text-slate-400" />{preferredTarget}</Field>}
+
+              {confidencePct !== null && (
+                <div>
+                  <dt className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Investigation confidence</dt>
+                  <dd className="flex items-center gap-3">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                      <div className="h-full rounded-full" style={{ width: `${confidencePct}%`, background: confidencePct >= 60 ? "#f8781e" : "#CBD5E1" }} />
+                    </div>
+                    <span className="w-10 text-right text-[13px] font-bold text-slate-700">{confidencePct}%</span>
+                  </dd>
+                </div>
+              )}
+
+              {(rca?.migrationConstraints ?? []).length > 0 && (
+                <Field label="Migration constraints">
+                  <ul className="mt-0.5 space-y-0.5">
+                    {rca!.migrationConstraints!.map((m, i) => (
+                      <li key={i} className="text-[13px] text-slate-600">· {m}</li>
+                    ))}
+                  </ul>
+                </Field>
+              )}
+            </dl>
+          </section>
+        )}
+
+        {/* ── Policy decision ── */}
+        {policy && <PolicyPanel policy={policy} />}
+
+        {/* ── Verification ── */}
+        {latestRun && <VerificationPanel run={latestRun} />}
+
+        {/* ── Remediation attempts ── */}
+        <section className="rounded-2xl bg-white p-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}>
+          <div className="mb-4 flex items-center gap-2">
+            <Bot className="h-4 w-4" style={{ color: "#f8781e" }} />
+            <h3 className="text-sm font-semibold text-slate-700">AI Remediation</h3>
+            {outOfPolicy && (
+              <span className="rounded-md bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-600">
+                an attempt was blocked by policy
               </span>
             )}
           </div>
 
-          {c.affectedFiles.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {c.affectedFiles.map(f => (
-                <span key={f} className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-mono text-slate-500">
-                  <FileCode2 className="h-3 w-3" />{f}
-                </span>
-              ))}
+          {c.attempts.length === 0 ? (
+            <p className="text-sm text-slate-400">No remediation attempts yet.</p>
+          ) : (
+            <div className="space-y-5">
+              {c.attempts.map(a => {
+                const done = new Set(a.stageResults.map(s => s.stage));
+                if (a.changes.length > 0) done.add("APPLIED");
+                const blocked = a.status === "OUT_OF_POLICY";
+                return (
+                  <div key={a.id} className="rounded-xl border border-slate-100 p-4">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-slate-700">Attempt {a.attemptNumber}</span>
+                      <div className="flex items-center gap-2">
+                        {a.strategyPolicyVersion && (
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">policy v{a.strategyPolicyVersion}</span>
+                        )}
+                        <code className="font-mono text-[11px] text-slate-300">{a.ref}</code>
+                      </div>
+                    </div>
+
+                    <ul className="space-y-1.5">
+                      {PIPELINE.map(step => {
+                        const complete = done.has(step.key);
+                        const isPolicyStep = step.key === "POLICY";
+                        const failedHere = blocked && (isPolicyStep || step.key === "APPLIED");
+                        return (
+                          <li key={step.key} className="flex items-center gap-2 text-[13px]">
+                            {failedHere ? <XCircle className="h-4 w-4 shrink-0 text-red-500" />
+                              : complete ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+                              : <CircleDot className="h-4 w-4 shrink-0 text-slate-200" />}
+                            <span className={complete && !failedHere ? "text-slate-700" : failedHere ? "font-medium text-red-600" : "text-slate-300"}>
+                              {isPolicyStep && complete && !blocked ? "Policy approved" : step.label}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+
+                    {a.error && (
+                      <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-relaxed text-red-700">
+                        {a.error}
+                      </div>
+                    )}
+
+                    {a.changes.length > 0 && (
+                      <details className="mt-3">
+                        <summary className="cursor-pointer list-none text-[12px] font-medium text-slate-500 hover:text-slate-700">
+                          {a.changes.length} file{a.changes.length === 1 ? "" : "s"} changed — view patch
+                        </summary>
+                        <div className="mt-2 space-y-3">
+                          {a.changes.map(ch => (
+                            <div key={ch.id}>
+                              <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
+                                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-500">{ch.changeType}</span>
+                                <span className="font-mono text-slate-600">{ch.filePath}</span>
+                              </div>
+                              {ch.reason && <p className="mb-1.5 text-[12px] leading-relaxed text-slate-500">{ch.reason}</p>}
+                              {ch.diffPatch && <DiffBlock diff={ch.diffPatch} />}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
 
-        {/* ── Correlated findings ── */}
+        {/* ── Evidence ── */}
         <section className="rounded-2xl bg-white p-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}>
           <div className="mb-3 flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-slate-400" />
-            <h3 className="text-sm font-semibold text-slate-700">Correlated Findings</h3>
+            <h3 className="text-sm font-semibold text-slate-700">Correlated Evidence</h3>
             <span className="text-xs text-slate-400">({c.findings.length})</span>
           </div>
           <div className="divide-y divide-slate-100">
             {c.findings.map(f => (
-              <div key={f.observationId} className="flex items-center justify-between gap-3 py-2 text-sm">
+              <div key={f.observationId} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                 <div className="min-w-0">
-                  <span className="font-mono text-xs text-slate-400">{f.observation?.ref}</span>{" "}
-                  <span className="text-slate-700">{f.observation?.algorithm ?? c.algorithm}</span>
-                  <span className="ml-2 truncate text-xs text-slate-400">
-                    {f.observation?.filePath ?? f.observation?.endpoint}
+                  <code className="font-mono text-xs text-slate-400">{f.observation?.ref}</code>{" "}
+                  <span className="font-medium text-slate-700">{f.observation?.algorithm}</span>
+                  <span className="ml-2 font-mono text-xs text-slate-400">
+                    {f.observation?.filePath}{f.observation?.lineNumber ? `:${f.observation.lineNumber}` : ""}
                   </span>
                 </div>
                 <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{f.sensorType}</span>
@@ -217,230 +356,111 @@ export default async function RemediationCasePage({ params }: { params: Promise<
           </div>
         </section>
 
-        {/* ── Staged Audit Trail ── */}
-        <section className="rounded-2xl bg-white p-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}>
-          <div className="mb-4 flex items-center gap-2">
-            <Bot className="h-4 w-4" style={{ color: "#f8781e" }} />
-            <h3 className="text-sm font-semibold text-slate-700">Staged AI Audit Trail</h3>
-          </div>
-
-          {c.attempts.length === 0 ? (
-            <p className="text-sm text-slate-400">
-              No AI remediation attempts yet. Run the staged remediation loop to investigate, plan, patch and verify.
-            </p>
-          ) : (
-            <div className="space-y-5">
-              {c.attempts.map(a => {
-                const am = ATTEMPT_STATUS[a.status] ?? ATTEMPT_STATUS.PENDING;
-                const doneStages = new Set(a.stageResults.map(s => s.stage));
-                return (
-                  <div key={a.id} className="rounded-xl border border-slate-100 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-700">Attempt {a.attemptNumber}</span>
-                        <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                          style={{ color: am.color, background: am.bg }}>{am.label}</span>
-                        {a.strategy && (
-                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{a.strategy}</span>
-                        )}
-                      </div>
-                      <span className="font-mono text-[11px] text-slate-300">{a.ref}</span>
-                    </div>
-
-                    {/* Stage pipeline */}
-                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                      {STAGE_ORDER.map((stage, i) => {
-                        const done = doneStages.has(stage);
-                        const failed = a.stageResults.find(s => s.stage === stage)?.error;
-                        return (
-                          <div key={stage} className="flex items-center gap-1.5">
-                            <span className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-medium"
-                              style={failed
-                                ? { color: "#DC2626", background: "#FEE2E2" }
-                                : done
-                                ? { color: "#16A34A", background: "#DCFCE7" }
-                                : { color: "#9CA3AF", background: "#F3F4F6" }}>
-                              {failed ? <XCircle className="h-3 w-3" /> : done ? <CheckCircle2 className="h-3 w-3" /> : <CircleDot className="h-3 w-3" />}
-                              {STAGE_LABEL[stage]}
-                            </span>
-                            {i < STAGE_ORDER.length - 1 && <ArrowRight className="h-3 w-3 text-slate-300" />}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {a.error && (
-                      <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">{a.error}</div>
-                    )}
-
-                    {/* Proposed changes */}
-                    {a.changes.length > 0 && (
-                      <div className="mt-3 space-y-3">
-                        {a.changes.map(ch => (
-                          <div key={ch.id}>
-                            <div className="mb-1 flex items-center gap-2 text-xs">
-                              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-500">{ch.changeType}</span>
-                              <span className="font-mono text-slate-600">{ch.filePath}</span>
-                            </div>
-                            {ch.reason && <p className="mb-1.5 text-xs leading-relaxed text-slate-500">{ch.reason}</p>}
-                            {ch.diffPatch && <DiffBlock diff={ch.diffPatch} />}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* ── Fingerprint Comparison ── */}
-        <section className="rounded-2xl bg-white p-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}>
-          <div className="mb-4 flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-slate-400" />
-            <h3 className="text-sm font-semibold text-slate-700">Verification &mdash; Before / After Fingerprints</h3>
-          </div>
-
-          {c.verificationRuns.length === 0 ? (
-            <p className="text-sm text-slate-400">
-              No verification runs yet. Verification re-runs the independent scanners and compares the before / after
-              cryptographic fingerprints. The scanner evidence &mdash; never the AI &mdash; decides the verdict.
-            </p>
-          ) : (
-            <div className="space-y-5">
-              {c.verificationRuns.map(run => {
-                const v = VERDICT[run.status] ?? { label: run.status, color: "#6B7280", bg: "#F3F4F6", good: false };
-                const before = run.findings.filter(f => f.phase === "BEFORE");
-                const after = run.findings.filter(f => f.phase === "AFTER");
-                const afterFP = new Set(after.map(f => f.fingerprint));
-                const beforeFP = new Set(before.map(f => f.fingerprint));
-                // Build a unified fingerprint row set.
-                const rows = new Map<string, { fp: string; algorithm: string | null; scanner: string; inBefore: boolean; inAfter: boolean }>();
-                for (const f of before) rows.set(f.fingerprint, { fp: f.fingerprint, algorithm: f.algorithm, scanner: f.scanner, inBefore: true, inAfter: afterFP.has(f.fingerprint) });
-                for (const f of after) {
-                  const ex = rows.get(f.fingerprint);
-                  if (ex) ex.inAfter = true;
-                  else rows.set(f.fingerprint, { fp: f.fingerprint, algorithm: f.algorithm, scanner: f.scanner, inBefore: beforeFP.has(f.fingerprint), inAfter: true });
-                }
-                const rowList = Array.from(rows.values());
-                const resolved = rowList.filter(r => r.inBefore && !r.inAfter).length;
-                const residual = rowList.filter(r => r.inBefore && r.inAfter).length;
-                const introduced = rowList.filter(r => !r.inBefore && r.inAfter).length;
-
-                return (
-                  <div key={run.id} className="rounded-xl border border-slate-100 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        {v.good ? <ShieldCheck className="h-4 w-4" style={{ color: v.color }} /> : <ShieldAlert className="h-4 w-4" style={{ color: v.color }} />}
-                        <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                          style={{ color: v.color, background: v.bg }}>{v.label}</span>
-                        <span className="font-mono text-[11px] text-slate-300">{run.ref}</span>
-                      </div>
-                      <span className="text-[11px] text-slate-400">{formatDateTime(run.finishedAt ?? run.createdAt)}</span>
-                    </div>
-
-                    {run.verdictReason && <p className="mt-2 text-xs leading-relaxed text-slate-500">{run.verdictReason}</p>}
-
-                    {/* Rollup */}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-1 text-[11px] font-semibold text-green-700">
-                        <CheckCircle2 className="h-3 w-3" />{resolved} resolved
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
-                        <MinusCircle className="h-3 w-3" />{residual} residual
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700">
-                        <XCircle className="h-3 w-3" />{introduced} introduced
-                      </span>
-                      {run.buildStatus && (
-                        <span className="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
-                          Build: {run.buildStatus}
-                        </span>
-                      )}
-                      {run.testStatus && (
-                        <span className="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
-                          Tests: {run.testStatus}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Fingerprint table */}
-                    {rowList.length > 0 && (
-                      <div className="mt-3 overflow-x-auto rounded-lg border border-slate-100">
-                        <table className="w-full text-left text-xs">
-                          <thead>
-                            <tr className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
-                              <th className="px-3 py-2 font-semibold">Fingerprint</th>
-                              <th className="px-3 py-2 font-semibold">Scanner</th>
-                              <th className="px-3 py-2 text-center font-semibold">Before</th>
-                              <th className="px-3 py-2 text-center font-semibold">After</th>
-                              <th className="px-3 py-2 font-semibold">Outcome</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {rowList.map(r => {
-                              const outcome = r.inBefore && !r.inAfter
-                                ? { label: "Resolved", color: "#16A34A" }
-                                : !r.inBefore && r.inAfter
-                                ? { label: "Introduced", color: "#DC2626" }
-                                : { label: "Residual", color: "#D97706" };
-                              return (
-                                <tr key={r.fp}>
-                                  <td className="px-3 py-2">
-                                    <span className="font-medium text-slate-600">{r.algorithm ?? "—"}</span>
-                                    <span className="ml-1.5 font-mono text-[10px] text-slate-300">{r.fp.slice(0, 24)}</span>
-                                  </td>
-                                  <td className="px-3 py-2 text-slate-400">{r.scanner}</td>
-                                  <td className="px-3 py-2 text-center">
-                                    {r.inBefore ? <XCircle className="mx-auto h-3.5 w-3.5 text-red-400" /> : <span className="text-slate-300">—</span>}
-                                  </td>
-                                  <td className="px-3 py-2 text-center">
-                                    {r.inAfter ? <XCircle className="mx-auto h-3.5 w-3.5 text-red-400" /> : <CheckCircle2 className="mx-auto h-3.5 w-3.5 text-green-500" />}
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <span className="font-semibold" style={{ color: outcome.color }}>{outcome.label}</span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-
-                    {/* Scanner coverage */}
-                    {run.scannerResults.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {run.scannerResults.map(sr => (
-                          <span key={sr.id} className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                            {sr.phase}·{sr.scanner}: {sr.status} ({sr.findingCount})
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* Verdict-source note */}
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-          <div className="flex items-start gap-3">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-            <p className="text-sm leading-relaxed text-slate-500">
-              The verdict is determined solely by the deterministic verification engine comparing independent scanner
-              evidence before and after the change &mdash; never by the AI&rsquo;s own assessment. A case is only marked
-              <span className="font-semibold text-slate-600"> Verified</span> when the scanners confirm the vulnerable
-              fingerprints are gone, behind a human review gate.
-              {latestAttempt?.verdict && <> Latest attempt verdict: <span className="font-semibold text-slate-600">{latestAttempt.verdict}</span>.</>}
-            </p>
-          </div>
-        </div>
-
+        <p className="px-1 pb-2 text-center text-[12px] leading-relaxed text-slate-400">
+          The verdict is set by independent scanners comparing the code before and after the change —
+          never by the AI. Nothing is applied to your repository without human approval.
+        </p>
       </div>
     </PageShell>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</dt>
+      <dd className="mt-0.5 text-[14px] leading-relaxed text-slate-700">{children}</dd>
+    </div>
+  );
+}
+
+function VerificationPanel({ run }: {
+  run: {
+    ref: string; status: string; verdictReason: string | null; buildStatus: string | null; testStatus: string | null;
+    finishedAt: Date | null; createdAt: Date;
+    findings: { phase: string; algorithm: string | null }[];
+    scannerResults: { scanner: string; status: string; findingCount: number }[];
+  };
+}) {
+  const v = VERDICT[run.status] ?? { label: run.status.replace(/_/g, " "), color: "#64748B", bg: "#F1F5F9", border: "#CBD5E1", good: false };
+
+  // Counts per algorithm, before and after, so a reviewer sees what moved.
+  const tally = new Map<string, { before: number; after: number }>();
+  for (const f of run.findings) {
+    const k = f.algorithm ?? "unknown";
+    const e = tally.get(k) ?? { before: 0, after: 0 };
+    if (f.phase === "BEFORE") e.before++; else e.after++;
+    tally.set(k, e);
+  }
+  const rows = [...tally.entries()].sort((a, b) => (b[1].before - a[1].before) || a[0].localeCompare(b[0]));
+
+  return (
+    <section className="rounded-2xl bg-white p-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <ScanLine className="h-4 w-4 text-slate-400" />
+          <h3 className="text-sm font-semibold text-slate-700">Verification</h3>
+        </div>
+        <span className="text-[11px] text-slate-400">
+          {formatDateTime(run.finishedAt ?? run.createdAt)} · <code className="font-mono">{run.ref}</code>
+        </span>
+      </div>
+
+      {rows.length > 0 && (
+        <div className="mb-4 overflow-x-auto rounded-xl border border-slate-100">
+          <table className="w-full text-left text-[13px]">
+            <thead>
+              <tr className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
+                <th className="px-4 py-2 font-semibold">Algorithm</th>
+                <th className="px-4 py-2 text-center font-semibold">Before</th>
+                <th className="px-4 py-2 text-center font-semibold">After</th>
+                <th className="px-4 py-2 font-semibold">Outcome</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map(([algo, n]) => {
+                // A post-quantum primitive appearing only after the change is the
+                // intended replacement, not a new problem. Anything else that is
+                // only present afterwards is reported neutrally: this view cannot
+                // tell "introduced by the patch" from "already elsewhere in the
+                // repository", and must not assert the stronger claim.
+                const isReplacement = lookupAlgorithm(algo)?.classification === "RESILIENT";
+                const outcome = n.before > 0 && n.after === 0 ? { label: "Resolved", color: "#15803D" }
+                  : n.before === 0 && n.after > 0
+                  ? isReplacement ? { label: "Replacement", color: "#15803D" } : { label: "Present after", color: "#B45309" }
+                  : { label: "Still present", color: "#B91C1C" };
+                return (
+                  <tr key={algo}>
+                    <td className="px-4 py-2 font-medium text-slate-700">{algo}</td>
+                    <td className="px-4 py-2 text-center tabular-nums text-slate-600">{n.before}</td>
+                    <td className="px-4 py-2 text-center tabular-nums text-slate-600">{n.after}</td>
+                    <td className="px-4 py-2 font-semibold" style={{ color: outcome.color }}>{outcome.label}</td>
+                  </tr>
+                );
+              })}
+              <tr className="bg-slate-50/60 text-slate-500">
+                <td className="px-4 py-2 text-[12px]">Build</td>
+                <td className="px-4 py-2 text-center text-[12px]" colSpan={2}>{run.buildStatus ?? "NOT_RUN"}</td>
+                <td className="px-4 py-2 text-[12px]">Tests: {run.testStatus ?? "NOT_RUN"}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Verdict */}
+      <div className="rounded-xl border-2 px-5 py-4" style={{ borderColor: v.border, background: v.bg }}>
+        <div className="flex items-center gap-2.5">
+          {v.good ? <ShieldCheck className="h-6 w-6" style={{ color: v.color }} /> : <ShieldAlert className="h-6 w-6" style={{ color: v.color }} />}
+          <span className="text-lg font-bold uppercase tracking-wide" style={{ color: v.color }}>{v.label}</span>
+        </div>
+        {run.verdictReason && <p className="mt-2 text-[13px] leading-relaxed" style={{ color: v.color, opacity: 0.9 }}>{run.verdictReason}</p>}
+        {run.scannerResults.length > 0 && (
+          <p className="mt-2 text-[11px]" style={{ color: v.color, opacity: 0.7 }}>
+            Confirmed by {run.scannerResults.map(s => `${s.scanner} (${s.status})`).join(", ")}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
