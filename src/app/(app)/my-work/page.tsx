@@ -22,6 +22,9 @@ export default async function MyWorkPage() {
       include: {
         owner: { select: { id: true, name: true, email: true } },
         assignee: { select: { id: true, name: true, email: true } },
+        // Remediation reviews link back to their case so the task is one click
+        // away from the evidence it concerns.
+        entities: { where: { remediationCaseId: { not: null } }, select: { remediationCaseId: true }, take: 1 },
       },
       orderBy: [{ priority: "asc" }, { dueDate: "asc" }],
     }),
@@ -43,6 +46,7 @@ export default async function MyWorkPage() {
       include: {
         owner: { select: { id: true, name: true, email: true } },
         assignee: { select: { id: true, name: true, email: true } },
+        entities: { where: { remediationCaseId: { not: null } }, select: { remediationCaseId: true }, take: 1 },
       },
       orderBy: [{ priority: "asc" }, { dueDate: "asc" }],
       take: 100,
@@ -65,6 +69,7 @@ export default async function MyWorkPage() {
     dueDate: string | null;
     owner: { id: string; name: string | null; email: string } | null;
     assignee: { id: string; name: string | null; email: string } | null;
+    caseId: string | null;
   };
 
   function serializeAction(a: typeof assignedActions[number]): ActionRow {
@@ -78,6 +83,7 @@ export default async function MyWorkPage() {
       dueDate: a.dueDate ? a.dueDate.toISOString() : null,
       owner: a.owner ? { id: a.owner.id, name: a.owner.name, email: a.owner.email } : null,
       assignee: a.assignee ? { id: a.assignee.id, name: a.assignee.name, email: a.assignee.email } : null,
+      caseId: a.entities?.[0]?.remediationCaseId ?? null,
     };
   }
 

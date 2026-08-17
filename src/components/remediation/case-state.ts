@@ -38,6 +38,8 @@ export interface CaseRow {
   attemptCount: number;
   hasPatch: boolean;
   attemptStatus: string | null;
+  /** Name of the person this review is assigned to, if anyone. */
+  assignedTo: string | null;
 }
 
 const IN_FLIGHT = new Set(["PENDING", "INVESTIGATING", "PLANNING", "PATCHING", "VERIFYING"]);

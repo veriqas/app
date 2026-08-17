@@ -961,6 +961,11 @@ model ActionEntity {
   action        Action   @relation(fields: [actionId], references: [id])
   entityType    String
 
+  // Links a task to a remediation case, so an assigned review appears in the
+  // assignee's My Work and the case can show who owns it.
+  remediationCaseId String?
+  remediationCase   RemediationCase? @relation(fields: [remediationCaseId], references: [id])
+
   riskId          String?
   risk            Risk?             @relation(fields: [riskId], references: [id])
   controlId       String?
@@ -1387,6 +1392,7 @@ model RemediationCase {
   findings         RemediationCaseFinding[]
   verificationRuns VerificationRun[]
   attempts         RemediationAttempt[]
+  actionLinks      ActionEntity[]
 
   @@index([tenantId])
   @@index([status])

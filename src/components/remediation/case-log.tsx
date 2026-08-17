@@ -214,7 +214,7 @@ function CaseCard({ row }: { row: CaseRow }) {
           icon={ScanLine} label="Scanners" value={verdictLabel(row.verdict)}
           tone={isGoodVerdict(row.verdict) ? "good" : isBadVerdict(row.verdict) ? "bad" : "neutral"}
         />
-        <Layer icon={UserCheck} label="Human" value={action.kind === "IN_PROGRESS" ? "Waiting" : "Review required"} tone="neutral" />
+        <Layer icon={UserCheck} label="Human" value={row.assignedTo ?? (action.kind === "IN_PROGRESS" ? "Waiting" : "Review required")} tone={row.assignedTo ? "good" : "neutral"} />
       </div>
     </Link>
   );

@@ -19,6 +19,8 @@ type ActionRow = {
   dueDate: string | null;
   owner: UserStub | null;
   assignee: UserStub | null;
+  /** Set when the task is a remediation-case review, for a direct link. */
+  caseId?: string | null;
 };
 
 type RiskRow = {
@@ -197,6 +199,15 @@ function AssignModal({ action: initialAction, allActions, users, onClose, onAssi
                     <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">{a.title}</p>
                     <div className="mt-0.5 flex items-center gap-2">
                       <span className="font-mono text-[10px] text-slate-400">{a.ref}</span>
+                      {a.caseId && (
+                        <a
+                          href={`/remediation/cases/${a.caseId}`}
+                          onClick={e => e.stopPropagation()}
+                          className="text-[11px] font-medium text-orange-600 underline decoration-orange-200 underline-offset-2 hover:decoration-orange-500"
+                        >
+                          Open case
+                        </a>
+                      )}
                       {a.assignee && (
                         <span className="text-xs text-slate-400">→ {a.assignee.name}</span>
                       )}
@@ -676,6 +687,14 @@ export function MyWorkClient({ myActions, myRisks, allActions, users, currentUse
                     </div>
                   </div>
                   <span className="shrink-0 font-mono text-[10px] text-slate-400">{a.ref}</span>
+                  {a.caseId && (
+                    <a
+                      href={`/remediation/cases/${a.caseId}`}
+                      className="shrink-0 text-[11px] font-medium text-orange-600 underline decoration-orange-200 underline-offset-2 hover:decoration-orange-500"
+                    >
+                      Open case
+                    </a>
+                  )}
                 </div>
               ))}
             </div>

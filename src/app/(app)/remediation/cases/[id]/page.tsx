@@ -6,6 +6,7 @@ import { isV2Enabled } from "@/lib/remediation/feature-flag";
 import { formatDateTime } from "@/lib/utils";
 import { lookupAlgorithm } from "@/lib/remediation/agent/knowledge-base";
 import { CaseActions } from "@/components/remediation/case-actions";
+import { AssignButton } from "@/components/remediation/assign-button";
 import { PolicyPanel, strategyLabel, type PolicyJson } from "@/components/remediation/policy-panel";
 import { DecisionChain } from "@/components/remediation/decision-chain";
 import {
@@ -150,7 +151,10 @@ export default async function RemediationCasePage({ params }: { params: Promise<
               </h2>
               {c.repoUrl && <p className="mt-1 text-xs text-slate-400">{c.repoUrl}</p>}
             </div>
-            <CaseActions caseId={c.id} canRemediate={c.attempts.length < 3 && !["VERIFIED", "DISMISSED"].includes(c.status)} attemptsUsed={c.attempts.length} caseStatus={c.status} />
+            <div className="flex flex-col items-end gap-2">
+              <CaseActions caseId={c.id} canRemediate={c.attempts.length < 3 && !["VERIFIED", "DISMISSED"].includes(c.status)} attemptsUsed={c.attempts.length} caseStatus={c.status} />
+              <AssignButton caseId={c.id} />
+            </div>
           </div>
 
           <div className="mt-5 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4 md:grid-cols-4">

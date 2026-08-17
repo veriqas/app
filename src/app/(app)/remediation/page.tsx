@@ -44,6 +44,11 @@ export default async function RemediationCenterPage({ searchParams }: { searchPa
         select: { status: true, strategy: true, strategyPolicyVersion: true, policyJson: true, _count: { select: { changes: true } } },
       },
       verificationRuns: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } },
+      actionLinks: {
+        where: { action: { status: { notIn: ["COMPLETED", "CLOSED"] } } },
+        select: { action: { select: { assignee: { select: { name: true, email: true } } } } },
+        take: 1,
+      },
     },
     take: 200,
   });
@@ -73,6 +78,7 @@ export default async function RemediationCenterPage({ searchParams }: { searchPa
       attemptCount: c.attempts.length,
       hasPatch: c.attempts.some(a => a._count.changes > 0),
       attemptStatus: latest?.status ?? null,
+      assignedTo: c.actionLinks[0]?.action.assignee?.name ?? c.actionLinks[0]?.action.assignee?.email ?? null,
     };
   });
 
