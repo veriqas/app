@@ -34,6 +34,34 @@ export interface AIClient {
   completeJSON<T>(params: { stage: string; system: string; user: string; maxTokens?: number }): Promise<AICompletion<T>>;
 }
 
+/**
+ * Escape raw control characters that appear INSIDE JSON string literals.
+ *
+ * A patch payload carries whole source files in `newContent`, and models
+ * routinely emit those with real newlines rather than \n escapes, which is not
+ * valid JSON. Rewriting only the characters inside string literals repairs that
+ * without altering the document's structure or any already-escaped sequence.
+ */
+export function repairJsonControlChars(s: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of s) {
+    if (escaped) { out += ch; escaped = false; continue; }
+    if (ch === "\\") { out += ch; escaped = true; continue; }
+    if (ch === '"') { inString = !inString; out += ch; continue; }
+    if (inString) {
+      const code = ch.charCodeAt(0);
+      if (ch === "\n") { out += "\\n"; continue; }
+      if (ch === "\r") { out += "\\r"; continue; }
+      if (ch === "\t") { out += "\\t"; continue; }
+      if (code < 0x20) { out += `\\u${code.toString(16).padStart(4, "0")}`; continue; }
+    }
+    out += ch;
+  }
+  return out;
+}
+
 /** Extract a single JSON object from a model response, tolerating stray fences. */
 export function extractJson<T>(raw: string): T {
   let s = raw.trim();
@@ -45,7 +73,13 @@ export function extractJson<T>(raw: string): T {
   if (first === -1 || last === -1 || last < first) {
     throw new Error("AI response did not contain a JSON object");
   }
-  return JSON.parse(s.slice(first, last + 1)) as T;
+  const body = s.slice(first, last + 1);
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    // Retry once with control characters inside strings escaped.
+    return JSON.parse(repairJsonControlChars(body)) as T;
+  }
 }
 
 export class AnthropicAIClient implements AIClient {
@@ -56,12 +90,16 @@ export class AnthropicAIClient implements AIClient {
     this.model = model;
   }
   async completeJSON<T>(params: { stage: string; system: string; user: string; maxTokens?: number }): Promise<AICompletion<T>> {
-    const res = await this.client.messages.create({
+    // Streamed rather than a single blocking call: the patch stage's budget is
+    // large enough that the SDK refuses a non-streaming request, which would
+    // fail the attempt before any patch is produced. finalMessage() reassembles
+    // the identical Message, so downstream handling is unchanged.
+    const res = await this.client.messages.stream({
       model: this.model,
       max_tokens: params.maxTokens ?? 4096,
       system: `${INJECTION_GUARD}\n\n${params.system}`,
       messages: [{ role: "user", content: params.user }],
-    });
+    }).finalMessage();
     const textBlock = res.content.find((b): b is Anthropic.TextBlock => b.type === "text");
     if (!textBlock?.text) throw new Error("Empty AI response");
     // A response cut off at the token limit leaves structurally invalid JSON.
