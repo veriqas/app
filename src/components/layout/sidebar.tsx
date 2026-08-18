@@ -6,8 +6,14 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { navSections } from "./nav-config";
 
-export function Sidebar() {
+export function Sidebar({ permissions = [], role }: { permissions?: string[]; role?: string }) {
   const pathname = usePathname();
+  const granted = new Set(permissions);
+
+  // Hide what this session cannot open, and drop a section that ends up empty.
+  const sections = navSections
+    .map(s => ({ ...s, items: s.items.filter(i => !i.permission || granted.has(i.permission)) }))
+    .filter(s => s.items.length > 0);
 
   return (
     <aside
@@ -31,7 +37,7 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 px-3">
-        {navSections.map((section) => (
+        {sections.map((section) => (
           <div key={section.label} className="mb-5">
             <p
               className="mb-1.5 px-2 text-[10px] font-700 uppercase tracking-[0.12em]"

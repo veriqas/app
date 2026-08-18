@@ -56,3 +56,39 @@ export async function requireAuth(): Promise<AuthContext | NextResponse> {
 export function isAuthError(v: AuthContext | NextResponse): v is NextResponse {
   return v instanceof NextResponse;
 }
+
+// ─── Authorisation ────────────────────────────────────────────────────────────
+
+import { loadPermissions, can, type Permission, type SessionPermissions } from "./permissions";
+import { notFound } from "next/navigation";
+
+/** Permissions for the current session. Fails closed when unauthenticated. */
+export async function getSessionPermissions(): Promise<SessionPermissions> {
+  const ctx = await getServerSession();
+  return loadPermissions(ctx?.userId ?? "", ctx?.tenantId ?? "");
+}
+
+/**
+ * Page guard. Renders the 404 page rather than a permission error, so an
+ * unauthorised user is not told which URLs exist.
+ */
+export async function requirePermission(permission: Permission): Promise<AuthContext> {
+  const ctx = await getServerSession();
+  if (!ctx?.tenantId) notFound();
+  const sp = await loadPermissions(ctx.userId, ctx.tenantId);
+  if (!can(sp, permission)) notFound();
+  return ctx;
+}
+
+/** API-route guard. Returns 401/403 rather than throwing. */
+export async function requirePermissionApi(
+  permission: Permission,
+): Promise<AuthContext | NextResponse> {
+  const ctx = await getServerSession();
+  if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sp = await loadPermissions(ctx.userId, ctx.tenantId);
+  if (!can(sp, permission)) {
+    return NextResponse.json({ error: "You do not have permission to do that." }, { status: 403 });
+  }
+  return ctx;
+}

@@ -1,3 +1,4 @@
+import { requirePermissionApi, isAuthError } from "@/lib/auth/session";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/client";
 import bcrypt from "bcryptjs";
@@ -17,6 +18,8 @@ const DEFAULT_DIMENSIONS = {
 
 // GET /api/setup — returns whether initial setup is still needed
 export async function GET() {
+  const guard = await requirePermissionApi("admin:config");
+  if (isAuthError(guard)) return guard;
   const count = await db.tenant.count();
   return NextResponse.json({ needsSetup: count === 0 });
 }
@@ -25,6 +28,8 @@ export async function GET() {
 // a default business unit, and the active scoring policy. Only permitted
 // while the platform has zero tenants (first-run only).
 export async function POST(req: NextRequest) {
+  const guard = await requirePermissionApi("admin:config");
+  if (isAuthError(guard)) return guard;
   const existing = await db.tenant.count();
   if (existing > 0) {
     return NextResponse.json({ error: "Platform is already configured" }, { status: 409 });

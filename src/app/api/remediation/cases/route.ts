@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "@/lib/auth/session";
+import { getServerSession, requirePermissionApi, isAuthError } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
 import { isV2Enabled } from "@/lib/remediation/feature-flag";
 import { buildRemediationCases } from "@/lib/remediation/case-builder";
@@ -8,6 +8,8 @@ export const dynamic = "force-dynamic";
 
 // GET /api/remediation/cases — list correlated remediation cases (V2 only).
 export async function GET() {
+  const guard = await requirePermissionApi("cases:read:all");
+  if (isAuthError(guard)) return guard;
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -27,6 +29,8 @@ export async function GET() {
 // POST /api/remediation/cases — run correlation and (re)build cases (V2 only).
 // Additive and idempotent: never modifies or deletes observations.
 export async function POST() {
+  const guard = await requirePermissionApi("cases:read:all");
+  if (isAuthError(guard)) return guard;
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

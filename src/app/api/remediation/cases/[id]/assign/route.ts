@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "@/lib/auth/session";
+import { getServerSession, requirePermissionApi, isAuthError } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,8 @@ function shortId() { return Math.random().toString(36).slice(2, 8).toUpperCase()
 
 // GET — who can this be assigned to, and is it already assigned?
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  const guard = await requirePermissionApi("actions:assign");
+  if (isAuthError(guard)) return guard;
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
@@ -45,6 +47,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
  * rather than in a separate remediation-only inbox.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const guard = await requirePermissionApi("actions:assign");
+  if (isAuthError(guard)) return guard;
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;

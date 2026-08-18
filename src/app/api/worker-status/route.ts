@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/lib/auth/session";
+import { requireAuth, isAuthError, requirePermissionApi } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const guard = await requirePermissionApi("discovery:read");
+  if (isAuthError(guard)) return guard;
   const ctx = await requireAuth();
   if (isAuthError(ctx)) return ctx;
 

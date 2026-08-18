@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "@/lib/auth/session";
+import { getServerSession, requirePermissionApi, isAuthError } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
 
 const REVIEW_DAYS: Record<string, number> = {
@@ -7,6 +7,8 @@ const REVIEW_DAYS: Record<string, number> = {
 };
 
 export async function POST() {
+  const guard = await requirePermissionApi("admin:config");
+  if (isAuthError(guard)) return guard;
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

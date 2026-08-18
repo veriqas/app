@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { PageShell } from "@/components/layout/page-shell";
 import { db } from "@/lib/db/client";
-import { getServerSession } from "@/lib/auth/session";
+import { getServerSession, getSessionPermissions } from "@/lib/auth/session";
+import { can } from "@/lib/auth/permissions";
 import { isV2Enabled } from "@/lib/remediation/feature-flag";
 import { formatDateTime } from "@/lib/utils";
 import { lookupAlgorithm } from "@/lib/remediation/agent/knowledge-base";
@@ -82,6 +83,22 @@ export default async function RemediationCasePage({ params }: { params: Promise<
   const ctx = await getServerSession();
   const tenantId = ctx?.tenantId ?? "";
   if (!isV2Enabled()) notFound();
+
+  // A reviewer may open a case only if it has been assigned to them. The check
+  // joins through the assignment rather than filtering in the view, so a case
+  // they do not own is genuinely unreachable, not merely hidden.
+  const sp = await getSessionPermissions();
+  if (!can(sp, "cases:read:all")) {
+    if (!can(sp, "cases:read:assigned")) notFound();
+    const assigned = await db.actionEntity.findFirst({
+      where: {
+        remediationCaseId: id,
+        action: { tenantId, assigneeId: ctx?.userId, status: { notIn: ["COMPLETED", "CLOSED"] } },
+      },
+      select: { id: true },
+    });
+    if (!assigned) notFound();
+  }
 
   const c = await db.remediationCase.findFirst({
     where: { id, tenantId },

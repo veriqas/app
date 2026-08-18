@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "@/lib/auth/session";
+import { getServerSession, requirePermissionApi, isAuthError } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/departments — list business units (departments) for the tenant
 export async function GET() {
+  const guard = await requirePermissionApi("admin:config");
+  if (isAuthError(guard)) return guard;
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -19,6 +21,8 @@ export async function GET() {
 
 // POST /api/departments — create a business unit (department) under the tenant's organisation
 export async function POST(req: NextRequest) {
+  const guard = await requirePermissionApi("admin:config");
+  if (isAuthError(guard)) return guard;
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

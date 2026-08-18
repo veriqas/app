@@ -1,7 +1,10 @@
+import { requirePermissionApi, isAuthError } from "@/lib/auth/session";
 import { ENGINE_REGISTRY } from "@/lib/scanners/engine-registry";
 import { NextResponse } from "next/server";
 
 export async function GET() {
+  const guard = await requirePermissionApi("discovery:read");
+  if (isAuthError(guard)) return guard;
   const checks = await Promise.all(
     Array.from(ENGINE_REGISTRY.entries()).map(async ([sensorType, engine]) => {
       if (engine.requiresAgent) return { sensorType, available: false, reason: "agent" };

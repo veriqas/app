@@ -1,6 +1,6 @@
 import { PageShell } from "@/components/layout/page-shell";
 import { db } from "@/lib/db/client";
-import { getServerSession } from "@/lib/auth/session";
+import { getServerSession, requirePermission } from "@/lib/auth/session";
 import { isV2Enabled } from "@/lib/remediation/feature-flag";
 import { RebuildCasesButton } from "@/components/remediation/rebuild-cases-button";
 import { CaseLog } from "@/components/remediation/case-log";
@@ -11,6 +11,8 @@ export const dynamic = "force-dynamic";
 
 export default async function RemediationCenterPage({ searchParams }: { searchParams: Promise<{ f?: string; sort?: string }> }) {
   const sp = await searchParams;
+  // The full case log is an analyst view; a reviewer's equivalent is My Work.
+  await requirePermission("cases:read:all");
   const ctx = await getServerSession();
   const tenantId = ctx?.tenantId ?? "";
 

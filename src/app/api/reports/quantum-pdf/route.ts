@@ -1,5 +1,5 @@
 ﻿import { NextResponse } from "next/server";
-import { getServerSession } from "@/lib/auth/session";
+import { getServerSession, requirePermissionApi, isAuthError } from "@/lib/auth/session";
 import { getPostureSummary } from "@/lib/services/posture.service";
 import { db } from "@/lib/db/client";
 import { renderToBuffer } from "@react-pdf/renderer";
@@ -12,6 +12,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 export async function GET() {
+  const guard = await requirePermissionApi("reporting:board");
+  if (isAuthError(guard)) return guard;
   try {
     const ctx = await getServerSession();
     if (!ctx?.tenantId) {

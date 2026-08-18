@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/client";
-import { requireAuth, isAuthError } from "@/lib/auth/session";
+import { requireAuth, isAuthError, requirePermissionApi } from "@/lib/auth/session";
 import { checkScanScope } from "@/lib/sensors/scan-scope";
 import { getScannerByType } from "@/lib/scanners/registry";
 import { executeScanJob } from "@/lib/scanners/worker";
 
 // GET /api/scan-jobs — list jobs for the authenticated tenant
 export async function GET(req: NextRequest) {
+  const guard = await requirePermissionApi("discovery:run");
+  if (isAuthError(guard)) return guard;
   const ctx = await requireAuth();
   if (isAuthError(ctx)) return ctx;
 
@@ -25,6 +27,8 @@ export async function GET(req: NextRequest) {
 
 // POST /api/scan-jobs — create and immediately execute a scan job
 export async function POST(req: NextRequest) {
+  const guard = await requirePermissionApi("discovery:run");
+  if (isAuthError(guard)) return guard;
   const ctx = await requireAuth();
   if (isAuthError(ctx)) return ctx;
 
