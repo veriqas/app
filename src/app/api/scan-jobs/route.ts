@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "sensorType and targets[] are required" }, { status: 400 });
   }
 
-  const { sensorType, targets } = body as { sensorType: string; targets: string[] };
+  const { sensorType, targets, businessUnitId } = body as { sensorType: string; targets: string[]; businessUnitId?: string };
 
   const scanner = getScannerByType(sensorType);
   if (!scanner) {
@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
       ref,
       tenantId: ctx.tenantId,
       sensorId: sensor.id,
+      businessUnitId: businessUnitId || null,
       requestedBy: ctx.userId,
       targets,
       status: "PENDING",

@@ -40,6 +40,8 @@ export interface CaseRow {
   attemptStatus: string | null;
   /** Name of the person this review is assigned to, if anyone. */
   assignedTo: string | null;
+  /** Department the scan that found this was run for, if it was attributed. */
+  department: string | null;
 }
 
 const IN_FLIGHT = new Set(["PENDING", "INVESTIGATING", "PLANNING", "PATCHING", "VERIFYING"]);
@@ -132,6 +134,11 @@ export function sortRows(rows: CaseRow[], key: SortKey): CaseRow[] {
     case "OLDEST":       return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     case "VERIFICATION": return out.sort((a, b) => VERIFICATION_RANK(a.verdict) - VERIFICATION_RANK(b.verdict) || b.confidence - a.confidence);
   }
+}
+
+/** Departments present in the current rows, for a data-driven filter. */
+export function departmentsOf(rows: CaseRow[]): string[] {
+  return [...new Set(rows.map(r => r.department).filter((d): d is string => !!d))].sort();
 }
 
 export const isGoodVerdict = (v: string | null) => !!v && GOOD_VERDICTS.has(v);

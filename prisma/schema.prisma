@@ -84,6 +84,7 @@ model BusinessUnit {
 
   businessServices BusinessService[]
   users            User[]
+  scanJobs         ScanJob[]
 }
 
 model OrgJurisdiction {
@@ -558,6 +559,10 @@ model ScanJob {
 
   requestedBy   String
   targets       String[]
+  // Department this scan was run for. Chosen when the scan is launched, so every
+  // finding it produces is attributable without mapping assets by hand.
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id])
   status        String   @default("PENDING")
   startedAt     DateTime?
   completedAt   DateTime?

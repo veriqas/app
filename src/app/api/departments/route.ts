@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 // GET /api/departments — list business units (departments) for the tenant
 export async function GET() {
-  const guard = await requirePermissionApi("admin:config");
+  const guard = await requirePermissionApi("discovery:read");
   if (isAuthError(guard)) return guard;
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

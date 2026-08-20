@@ -6,9 +6,10 @@ import { Bot, Scale, ScanLine, UserCheck, Layers, ChevronRight, Lock, ArrowUpDow
 import { strategyLabel } from "./policy-panel";
 import {
   type CaseRow, type FilterKey, type SortKey,
-  deriveSeverity, deriveAction, matchesFilter, sortRows,
+  deriveSeverity, deriveAction, matchesFilter, sortRows, departmentsOf,
   SEVERITY_STYLE, isGoodVerdict, isBadVerdict,
 } from "./case-state";
+import { Building2 } from "lucide-react";
 
 const FILTERS: { key: FilterKey; label: string; group: string }[] = [
   { key: "CRITICAL", label: "Critical", group: "Severity" },
@@ -41,6 +42,8 @@ export function CaseLog({ rows, initialFilters = [], initialSort = "SEVERITY" }:
 }) {
   const [active, setActive] = useState<Set<FilterKey>>(new Set(initialFilters));
   const [sort, setSort] = useState<SortKey>(initialSort);
+  const [department, setDepartment] = useState<string>("");
+  const departments = useMemo(() => departmentsOf(rows), [rows]);
 
   /**
    * Filter and sort state lives in the URL, so opening a case and coming back
@@ -64,10 +67,11 @@ export function CaseLog({ rows, initialFilters = [], initialSort = "SEVERITY" }:
       byGroup.set(f.group, [...(byGroup.get(f.group) ?? []), f.key]);
     }
     const filtered = rows.filter(r =>
-      [...byGroup.values()].every(keys => keys.some(k => matchesFilter(r, k))),
+      [...byGroup.values()].every(keys => keys.some(k => matchesFilter(r, k)))
+      && (!department || r.department === department),
     );
     return sortRows(filtered, sort);
-  }, [rows, active, sort]);
+  }, [rows, active, sort, department]);
 
   const toggle = (k: FilterKey) =>
     setActive(prev => {
@@ -113,7 +117,23 @@ export function CaseLog({ rows, initialFilters = [], initialSort = "SEVERITY" }:
           <p className="text-[12px] text-slate-400">
             Showing <span className="font-semibold text-slate-600">{shown.length}</span> of {rows.length} cases
           </p>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-3">
+            {departments.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <Building2 className="h-3.5 w-3.5 text-slate-300" />
+                <label htmlFor="case-dept" className="text-[12px] text-slate-400">Department</label>
+                <select
+                  id="case-dept"
+                  value={department}
+                  onChange={e => setDepartment(e.target.value)}
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-600"
+                >
+                  <option value="">All</option>
+                  {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5">
             <ArrowUpDown className="h-3.5 w-3.5 text-slate-300" />
             <label htmlFor="case-sort" className="text-[12px] text-slate-400">Sort</label>
             <select
@@ -124,6 +144,7 @@ export function CaseLog({ rows, initialFilters = [], initialSort = "SEVERITY" }:
             >
               {SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
+            </div>
           </div>
         </div>
       </div>
@@ -166,6 +187,11 @@ function CaseCard({ row }: { row: CaseRow }) {
             <code className="font-mono text-[11px] text-slate-400">{row.ref}</code>
             {row.quantumClass === "QUANTUM_VULNERABLE" && (
               <span className="rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600">quantum vulnerable</span>
+            )}
+            {row.department && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                <Building2 className="h-2.5 w-2.5" />{row.department}
+              </span>
             )}
           </div>
           <p className="mt-1.5 text-[16px] font-bold leading-tight text-slate-900">

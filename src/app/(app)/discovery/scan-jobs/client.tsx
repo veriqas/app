@@ -189,6 +189,17 @@ function NewScanModal({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
 
+  // Department the scan is run for. Chosen here so every finding it produces is
+  // attributable, rather than mapping assets to services after the fact.
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
+  const [departmentId, setDepartmentId] = useState("");
+  useEffect(() => {
+    fetch("/api/departments")
+      .then(r => (r.ok ? r.json() : { departments: [] }))
+      .then(d => setDepartments(d.departments ?? d ?? []))
+      .catch(() => setDepartments([]));
+  }, []);
+
   function handleLaunch() {
     if (!selected) { setError("Select a scanner."); return; }
     if (!target.trim()) { setError("Enter a target."); return; }
@@ -198,7 +209,7 @@ function NewScanModal({
       const res = await fetch("/api/scan-jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sensorType: selected.sensorType, targets: [target.trim()] }),
+        body: JSON.stringify({ sensorType: selected.sensorType, targets: [target.trim()], businessUnitId: departmentId || undefined }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -282,6 +293,29 @@ function NewScanModal({
               </div>
               <p className="text-slate-500 dark:text-slate-400 leading-relaxed">{selected.description}</p>
               <p className="mt-1 text-slate-400 dark:text-slate-500">{selected.durationHint} · {selected.inputTypes.join(", ")}</p>
+            </div>
+          )}
+
+          {/* Department */}
+          {selected && isAvailable && (
+            <div>
+              <label htmlFor="scan-department" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                Department
+              </label>
+              <select
+                id="scan-department"
+                value={departmentId}
+                onChange={e => setDepartmentId(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <option value="">Not attributed</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <p className="mt-1 text-[11px] text-slate-400">
+                {departments.length === 0
+                  ? "No departments yet — an administrator can add them under Administration → Organisation."
+                  : "Findings from this scan are attributed to the department you choose."}
+              </p>
             </div>
           )}
 

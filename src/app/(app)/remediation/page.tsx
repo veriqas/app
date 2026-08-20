@@ -40,7 +40,7 @@ export default async function RemediationCenterPage({ searchParams }: { searchPa
     where: { tenantId },
     orderBy: [{ createdAt: "desc" }],
     include: {
-      findings: { select: { sensorType: true, observation: { select: { quantumClass: true, primitiveType: true } } } },
+      findings: { select: { sensorType: true, observation: { select: { quantumClass: true, primitiveType: true, scanJob: { select: { businessUnit: { select: { name: true } } } } } } } },
       attempts: {
         orderBy: { attemptNumber: "asc" },
         select: { status: true, strategy: true, strategyPolicyVersion: true, policyJson: true, _count: { select: { changes: true } } },
@@ -81,6 +81,9 @@ export default async function RemediationCenterPage({ searchParams }: { searchPa
       hasPatch: c.attempts.some(a => a._count.changes > 0),
       attemptStatus: latest?.status ?? null,
       assignedTo: c.actionLinks[0]?.action.assignee?.name ?? c.actionLinks[0]?.action.assignee?.email ?? null,
+      // Attribution comes from the scan that produced the finding; a scan run
+      // without a department simply has none, rather than being guessed at.
+      department: c.findings.map(f => f.observation?.scanJob?.businessUnit?.name).find(Boolean) ?? null,
     };
   });
 
