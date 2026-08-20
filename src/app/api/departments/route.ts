@@ -19,9 +19,17 @@ export async function GET() {
   return NextResponse.json(departments);
 }
 
-// POST /api/departments — create a business unit (department) under the tenant's organisation
+/**
+ * POST /api/departments — create a business unit (department).
+ *
+ * Permitted to anyone who can run a scan, not only administrators. A scan must
+ * name the department it is for, so requiring an administrator round-trip to
+ * create one would either block the scan or push people towards leaving work
+ * unattributed — the opposite of the intent. Administrators remain the ones who
+ * curate the structure, on the Organisation page.
+ */
 export async function POST(req: NextRequest) {
-  const guard = await requirePermissionApi("admin:config");
+  const guard = await requirePermissionApi("discovery:run");
   if (isAuthError(guard)) return guard;
   const ctx = await getServerSession();
   if (!ctx?.tenantId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -39,12 +47,17 @@ export async function POST(req: NextRequest) {
     orderBy: { createdAt: "asc" },
     select: { id: true },
   });
-  if (!org) return NextResponse.json({ error: "No organisation found for tenant" }, { status: 400 });
+  // A tenant that has not completed organisation setup should still be able to
+  // record a department rather than being blocked from scanning.
+  const organisationId = org?.id ?? (await db.organisation.create({
+    data: { tenantId: ctx.tenantId, name: "Organisation" },
+    select: { id: true },
+  })).id;
 
   try {
     const department = await db.businessUnit.create({
       data: {
-        organisationId: org.id,
+        organisationId,
         name,
         description,
         headName,

@@ -39,6 +39,17 @@ export async function POST(req: NextRequest) {
 
   const { sensorType, targets, businessUnitId } = body as { sensorType: string; targets: string[]; businessUnitId?: string };
 
+  // Attribution is required: an unattributed scan produces findings that cannot
+  // be traced to the part of the business they affect.
+  if (!businessUnitId) {
+    return NextResponse.json({ error: "Select the department this scan is for." }, { status: 400 });
+  }
+  const unit = await db.businessUnit.findFirst({
+    where: { id: businessUnitId, organisation: { tenantId: ctx.tenantId } },
+    select: { id: true },
+  });
+  if (!unit) return NextResponse.json({ error: "That department was not found." }, { status: 400 });
+
   const scanner = getScannerByType(sensorType);
   if (!scanner) {
     return NextResponse.json({ error: `Unknown sensorType: ${sensorType}` }, { status: 400 });
@@ -72,7 +83,7 @@ export async function POST(req: NextRequest) {
       ref,
       tenantId: ctx.tenantId,
       sensorId: sensor.id,
-      businessUnitId: businessUnitId || null,
+      businessUnitId,
       requestedBy: ctx.userId,
       targets,
       status: "PENDING",

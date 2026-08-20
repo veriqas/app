@@ -193,15 +193,44 @@ function NewScanModal({
   // attributable, rather than mapping assets to services after the fact.
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [departmentId, setDepartmentId] = useState("");
-  useEffect(() => {
+  const [newDepartment, setNewDepartment] = useState("");
+  const [addingDepartment, setAddingDepartment] = useState(false);
+  const [savingDepartment, setSavingDepartment] = useState(false);
+
+  const loadDepartments = () =>
     fetch("/api/departments")
-      .then(r => (r.ok ? r.json() : { departments: [] }))
-      .then(d => setDepartments(d.departments ?? d ?? []))
+      .then(r => (r.ok ? r.json() : []))
+      .then(d => setDepartments(Array.isArray(d) ? d : (d.departments ?? [])))
       .catch(() => setDepartments([]));
-  }, []);
+  useEffect(() => { loadDepartments(); }, []);
+
+  async function createDepartment() {
+    const name = newDepartment.trim();
+    if (!name) return;
+    setSavingDepartment(true);
+    try {
+      const res = await fetch("/api/departments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error ?? "Could not add that department.");
+        return;
+      }
+      const created = await res.json();
+      await loadDepartments();
+      setDepartmentId(created.id);
+      setNewDepartment("");
+      setAddingDepartment(false);
+      setError("");
+    } finally { setSavingDepartment(false); }
+  }
 
   function handleLaunch() {
     if (!selected) { setError("Select a scanner."); return; }
+    if (!departmentId) { setError("Select the department this scan is for."); return; }
     if (!target.trim()) { setError("Enter a target."); return; }
     setError("");
 
@@ -209,7 +238,7 @@ function NewScanModal({
       const res = await fetch("/api/scan-jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sensorType: selected.sensorType, targets: [target.trim()], businessUnitId: departmentId || undefined }),
+        body: JSON.stringify({ sensorType: selected.sensorType, targets: [target.trim()], businessUnitId: departmentId }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -296,25 +325,54 @@ function NewScanModal({
             </div>
           )}
 
-          {/* Department */}
+          {/* Department — required, so every finding is attributable */}
           {selected && isAvailable && (
             <div>
               <label htmlFor="scan-department" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                Department
+                DEPARTMENT <span className="text-red-500">*</span>
               </label>
-              <select
-                id="scan-department"
-                value={departmentId}
-                onChange={e => setDepartmentId(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-              >
-                <option value="">Not attributed</option>
-                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
+
+              {addingDepartment || departments.length === 0 ? (
+                <div className="flex gap-2">
+                  <input
+                    value={newDepartment}
+                    onChange={e => setNewDepartment(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); createDepartment(); } }}
+                    placeholder="e.g. Payments"
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  />
+                  <Button size="sm" onClick={createDepartment} disabled={savingDepartment || !newDepartment.trim()}>
+                    {savingDepartment ? "Adding…" : "Add"}
+                  </Button>
+                  {departments.length > 0 && (
+                    <Button size="sm" variant="outline" onClick={() => { setAddingDepartment(false); setNewDepartment(""); }}>
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <select
+                    id="scan-department"
+                    value={departmentId}
+                    onChange={e => setDepartmentId(e.target.value)}
+                    className={`flex-1 rounded-lg border bg-white px-3 py-2 text-sm dark:bg-slate-900 ${
+                      departmentId
+                        ? "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                        : "border-amber-300 text-slate-500"
+                    }`}
+                  >
+                    <option value="">Select a department…</option>
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                  <Button size="sm" variant="outline" onClick={() => setAddingDepartment(true)}>New</Button>
+                </div>
+              )}
+
               <p className="mt-1 text-[11px] text-slate-400">
                 {departments.length === 0
-                  ? "No departments yet — an administrator can add them under Administration → Organisation."
-                  : "Findings from this scan are attributed to the department you choose."}
+                  ? "Name the department this scan is for. Findings are attributed to it."
+                  : "Every finding from this scan is attributed to this department."}
               </p>
             </div>
           )}
@@ -349,7 +407,7 @@ function NewScanModal({
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={handleLaunch} disabled={isPending || !selected || !isAvailable || !target.trim()}>
+          <Button size="sm" onClick={handleLaunch} disabled={isPending || !selected || !isAvailable || !departmentId || !target.trim()}>
             {isPending ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Launching…</> : <><Play className="h-3.5 w-3.5" /> Launch Scan</>}
           </Button>
         </div>
